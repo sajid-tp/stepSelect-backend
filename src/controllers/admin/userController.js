@@ -1,6 +1,5 @@
 // src/controllers/admin/userController.js
-const adminUserService = require('../../services/admin/adminUserService');
-const getUsersTest = require('../../services/admin/adminUserService');
+const adminUserService = require('../../services/admin/adminUserServices');
 
 // GET /api/admin/users
 const getUsers = async (req, res) => {

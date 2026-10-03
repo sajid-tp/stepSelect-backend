@@ -11,6 +11,7 @@ const adminAuthRoutes = require('./src/routes/admin/authRoutes');
 const adminUserRoutes = require('./src/routes/admin/userRoutes');
 const accountRoutes = require('./src/routes/user/profileRoutes');
 const addressRoutes = require('./src/routes/user/addressRoutes');
+const adminCategoryRoutes = require('./src/routes/admin/categoryRoutes');
 const app = express();
 
 app.use(cors({
@@ -26,8 +27,11 @@ connectDB();
 app.use('/api/auth', authRoutes);
 app.use('/api/account',accountRoutes);
 app.use('/api/addresses',addressRoutes);
+
+//admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/users',adminUserRoutes);
+app.use('/api/admin/categories',adminCategoryRoutes);
 
 
 const PORT = process.env.PORT || 5000;
