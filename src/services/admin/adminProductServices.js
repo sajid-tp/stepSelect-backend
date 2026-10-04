@@ -1,7 +1,7 @@
 const Product = require('../../models/products');
 const Variant = require('../../models/variants');
 const Category = require('../../models/categories');
-// const Brand = require('../../models/brands');
+const Brand = require('../../models/brands');
 
 const mongoose = require('mongoose');
 
@@ -30,8 +30,7 @@ const createProduct = async ({
   // 1. Validate product name
   // -----------------------------------
 
-  // CHANGED: only trim if it is a string
-  const name = typeof productName === 'string' ? productName.trim() : '';
+  const name = (productName || '').trim();
 
   if (!name) {
     throw createError(
@@ -46,9 +45,7 @@ const createProduct = async ({
   // 2. Validate description
   // -----------------------------------
 
-  // CHANGED: only trim if it is a string
-  const productDescription =
-    typeof description === 'string' ? description.trim() : '';
+  const productDescription = (description || '').trim();
 
   if (!productDescription) {
     throw createError(
@@ -130,51 +127,38 @@ const createProduct = async ({
   // 8. Check brand exists
   // -----------------------------------
 
-//   const brand = await Brand.findById(brandId);
+  const brand = await Brand.findById(brandId);
 
-//   if (!brand) {
-//     throw createError(
-//       'Brand not found.',
-//       404,
-//       'BRAND_NOT_FOUND'
-//     );
-//   }
+  if (!brand) {
+    throw createError(
+      'Brand not found.',
+      404,
+      'BRAND_NOT_FOUND'
+    );
+  }
 
 
   // -----------------------------------
   // 9. Check brand is active
   // -----------------------------------
 
-//   if (!brand.isActive) {
-//     throw createError(
-//       'Cannot create product with an inactive brand.',
-//       400,
-//       'BRAND_INACTIVE'
-//     );
-//   }
+  if (!brand.isActive) {
+    throw createError(
+      'Cannot create product with an inactive brand.',
+      400,
+      'BRAND_INACTIVE'
+    );
+  }
 
 
   // -----------------------------------
   // 10. Validate each variant
   // -----------------------------------
 
-  // CHANGED: track colors to detect duplicates
-  const seenColors = new Set();
-
   for (const variant of variants) {
 
-    // CHANGED: variant must be an object
-    if (!variant || typeof variant !== 'object' || Array.isArray(variant)) {
-      throw createError(
-        'Invalid variant.',
-        400,
-        'INVALID_VARIANT'
-      );
-    }
-
     // Color
-    // CHANGED: only trim if it is a string
-    const color = typeof variant.color === 'string' ? variant.color.trim() : '';
+    const color = (variant.color || '').trim();
 
     if (!color) {
       throw createError(
@@ -183,17 +167,6 @@ const createProduct = async ({
         'VARIANT_COLOR_REQUIRED'
       );
     }
-
-    // CHANGED: duplicate color check
-    if (seenColors.has(color.toLowerCase())) {
-      throw createError(
-        `Duplicate variant color: ${color}.`,
-        400,
-        'DUPLICATE_VARIANT_COLOR'
-      );
-    }
-
-    seenColors.add(color.toLowerCase());
 
 
     // Price
@@ -209,9 +182,8 @@ const createProduct = async ({
       );
     }
 
-    // CHANGED: rejects NaN and Infinity
     if (
-      !Number.isFinite(variant.price) ||
+      typeof variant.price !== 'number' ||
       variant.price < 0
     ) {
       throw createError(
@@ -234,19 +206,6 @@ const createProduct = async ({
       );
     }
 
-    // CHANGED: every image must be a non-empty string
-    if (
-      !variant.images.every(
-        (img) => typeof img === 'string' && img.trim() !== ''
-      )
-    ) {
-      throw createError(
-        'Every image must be a non-empty string.',
-        400,
-        'INVALID_IMAGE'
-      );
-    }
-
 
     // Sizes
     if (
@@ -261,23 +220,10 @@ const createProduct = async ({
     }
 
 
-    // CHANGED: track sizes to detect duplicates
-    const seenSizes = new Set();
-
     // Validate each size
     for (const sizeItem of variant.sizes) {
 
-      // CHANGED: size item must be an object
-      if (!sizeItem || typeof sizeItem !== 'object' || Array.isArray(sizeItem)) {
-        throw createError(
-          'Invalid size item.',
-          400,
-          'INVALID_SIZE_ITEM'
-        );
-      }
-
-      // CHANGED: only trim if it is a string
-      const size = typeof sizeItem.size === 'string' ? sizeItem.size.trim() : '';
+      const size = (sizeItem.size || '').trim();
 
       if (!size) {
         throw createError(
@@ -286,17 +232,6 @@ const createProduct = async ({
           'SIZE_REQUIRED'
         );
       }
-
-      // CHANGED: duplicate size check
-      if (seenSizes.has(size.toLowerCase())) {
-        throw createError(
-          `Duplicate size ${size} in variant ${color}.`,
-          400,
-          'DUPLICATE_SIZE'
-        );
-      }
-
-      seenSizes.add(size.toLowerCase());
 
 
       if (
@@ -311,13 +246,12 @@ const createProduct = async ({
       }
 
 
-      // CHANGED: stock must be a whole number (rejects NaN, Infinity, 2.5)
       if (
-        !Number.isInteger(sizeItem.stock) ||
+        typeof sizeItem.stock !== 'number' ||
         sizeItem.stock < 0
       ) {
         throw createError(
-          `Stock must be a non-negative whole number for size ${size}.`,
+          `Stock must be a non-negative number for size ${size}.`,
           400,
           'INVALID_STOCK'
         );
@@ -334,61 +268,37 @@ const createProduct = async ({
     productName: name,
     description: productDescription,
     categoryId,
-    // brandId,
+    brandId,
   });
 
 
-  // CHANGED: steps 12 and 13 wrapped in try/catch so a failure
-  // removes the product (and any partial variants)
-  let createdVariants;
+  // -----------------------------------
+  // 12. Prepare Variant data
+  // -----------------------------------
 
-  try {
+  const variantData = variants.map((variant) => ({
+    productId: product._id,
 
-    // -----------------------------------
-    // 12. Prepare Variant data
-    // -----------------------------------
+    color: variant.color.trim(),
 
-    const variantData = variants.map((variant) => ({
-      productId: product._id,
+    price: variant.price,
 
-      color: variant.color.trim(),
+    images: variant.images,
 
-      price: variant.price,
-
-      images: variant.images,
-
-      sizes: variant.sizes.map((sizeItem) => ({
-        size: sizeItem.size.trim(),
-        stock: sizeItem.stock,
-      })),
-    }));
+    sizes: variant.sizes.map((sizeItem) => ({
+      size: sizeItem.size.trim(),
+      stock: sizeItem.stock,
+    })),
+  }));
 
 
-    // -----------------------------------
-    // 13. Create Variants
-    // -----------------------------------
+  // -----------------------------------
+  // 13. Create Variants
+  // -----------------------------------
 
-    createdVariants = await Variant.insertMany(
-      variantData
-    );
-
-  } catch (err) {
-
-    // Manual rollback
-    await Variant.deleteMany({ productId: product._id });
-    await Product.deleteOne({ _id: product._id });
-
-    // Duplicate key error
-    if (err.code === 11000) {
-      throw createError(
-        'A duplicate value was found while creating the product.',
-        409,
-        'DUPLICATE_VALUE'
-      );
-    }
-
-    throw err;
-  }
+  const createdVariants = await Variant.insertMany(
+    variantData
+  );
 
 
   // -----------------------------------
@@ -400,7 +310,7 @@ const createProduct = async ({
     productName: product.productName,
     description: product.description,
     categoryId: product.categoryId,
-    // brandId: product.brandId,
+    brandId: product.brandId,
     isActive: product.isActive,
 
     variants: createdVariants.map((variant) => ({
@@ -418,7 +328,207 @@ const createProduct = async ({
   };
 };
 
+const updateProduct = async (
+  productId,
+  {
+    productName,
+    description,
+    categoryId,
+    brandId,
+  }
+) => {
+
+  // -----------------------------------
+  // 1. Validate product ID
+  // -----------------------------------
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    throw createError(
+      'Invalid product id.',
+      400,
+      'INVALID_PRODUCT_ID'
+    );
+  }
+
+
+  // -----------------------------------
+  // 2. Find product
+  // -----------------------------------
+
+  const existingProduct = await Product.findById(productId);
+
+  if (!existingProduct) {
+    throw createError(
+      'Product not found.',
+      404,
+      'PRODUCT_NOT_FOUND'
+    );
+  }
+
+
+  // -----------------------------------
+  // 3. Check product status
+  // -----------------------------------
+
+  if (!existingProduct.isActive) {
+    throw createError(
+      'Cannot edit an inactive product.',
+      400,
+      'PRODUCT_INACTIVE'
+    );
+  }
+
+
+  // -----------------------------------
+  // 4. Validate product name
+  // -----------------------------------
+
+  // CHANGED: only trim if it is a string
+  const name = typeof productName === 'string' ? productName.trim() : '';
+
+  if (!name) {
+    throw createError(
+      'Product name is required.',
+      400,
+      'PRODUCT_NAME_REQUIRED'
+    );
+  }
+
+
+  // -----------------------------------
+  // 5. Validate description
+  // -----------------------------------
+
+  // CHANGED: only trim if it is a string
+  const productDescription =
+    typeof description === 'string' ? description.trim() : '';
+
+  if (!productDescription) {
+    throw createError(
+      'Product description is required.',
+      400,
+      'PRODUCT_DESCRIPTION_REQUIRED'
+    );
+  }
+
+
+  // -----------------------------------
+  // 6. Validate category ID
+  // -----------------------------------
+
+  if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+    throw createError(
+      'Invalid category id.',
+      400,
+      'INVALID_CATEGORY_ID'
+    );
+  }
+
+
+  // -----------------------------------
+  // 7. Validate brand ID
+  // -----------------------------------
+
+  if (!mongoose.Types.ObjectId.isValid(brandId)) {
+    throw createError(
+      'Invalid brand id.',
+      400,
+      'INVALID_BRAND_ID'
+    );
+  }
+
+
+  // -----------------------------------
+  // 8. Check category
+  // -----------------------------------
+
+  const category = await Category.findById(categoryId);
+
+  if (!category) {
+    throw createError(
+      'Category not found.',
+      404,
+      'CATEGORY_NOT_FOUND'
+    );
+  }
+
+
+  // -----------------------------------
+  // 9. Check category is active
+  // -----------------------------------
+
+  if (!category.isActive) {
+    throw createError(
+      'Cannot assign an inactive category to a product.',
+      400,
+      'CATEGORY_INACTIVE'
+    );
+  }
+
+
+  // -----------------------------------
+  // 10. Check brand
+  // -----------------------------------
+
+  const brand = await Brand.findById(brandId);
+
+  if (!brand) {
+    throw createError(
+      'Brand not found.',
+      404,
+      'BRAND_NOT_FOUND'
+    );
+  }
+
+
+  // -----------------------------------
+  // 11. Check brand is active
+  // -----------------------------------
+
+  if (!brand.isActive) {
+    throw createError(
+      'Cannot assign an inactive brand to a product.',
+      400,
+      'BRAND_INACTIVE'
+    );
+  }
+
+
+  // -----------------------------------
+  // 12. Update product
+  // -----------------------------------
+
+  existingProduct.productName = name;
+  existingProduct.description = productDescription;
+  existingProduct.categoryId = categoryId;
+  existingProduct.brandId = brandId;
+
+
+  // -----------------------------------
+  // 13. Save
+  // -----------------------------------
+
+  const updatedProduct = await existingProduct.save();
+
+
+  // -----------------------------------
+  // 14. Return updated product
+  // -----------------------------------
+
+  return {
+    id: updatedProduct._id,
+    productName: updatedProduct.productName,
+    description: updatedProduct.description,
+    categoryId: updatedProduct.categoryId,
+    brandId: updatedProduct.brandId,
+    isActive: updatedProduct.isActive,
+    createdAt: updatedProduct.createdAt,
+    updatedAt: updatedProduct.updatedAt,
+  };
+};
+
 
 module.exports = {
   createProduct,
+  updateProduct
 };

@@ -39,6 +39,46 @@ const createProduct = async (req, res) => {
 };
 
 
+const updateProduct = async (req, res) => {
+  try {
+
+    const { productId } = req.params;
+
+    const {
+      productName,
+      description,
+      categoryId,
+      brandId,
+    } = req.body;
+
+
+    const data = await adminProductService.updateProduct(
+      productId,
+      {
+        productName,
+        description,
+        categoryId,
+        brandId,
+      }
+    );
+
+
+    return res.status(200).json(data);
+
+  } catch (err) {
+
+    console.error(err);
+
+    return res.status(err.statusCode || 500).json({
+      error: {
+        code: err.code || 'SERVER_ERROR',
+        message: err.message || 'Something went wrong.',
+      },
+    });
+  }
+};
+
 module.exports = {
   createProduct,
+  updateProduct
 };
