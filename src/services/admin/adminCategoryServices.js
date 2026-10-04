@@ -65,7 +65,7 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
     throw createError('Category name is required.', 400, 'CATEGORY_NAME_REQUIRED');
   }
 
-  const existingCategory = await Category.findOne({ categoryName: name })
+  const existingCategory = await Category.findOne({ categoryName: name, deletedAt:null })
     .collation({ locale: 'en', strength: 2 });
 
   if (existingCategory) {
@@ -152,12 +152,13 @@ const updateCategory = async (
     throw createError(
       'Category name is required.',
       400,
-      'CATEGORY_NAME_REQUIRED'
+      'CATEGORY_NAME_REQUIRED' 
     );
   }
 
   const duplicateCategory = await Category.findOne({
     categoryName: name,
+    deletedAt : null,
     _id: { $ne: categoryId },
   }).collation({
     locale: 'en',

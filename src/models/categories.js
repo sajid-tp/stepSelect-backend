@@ -39,6 +39,9 @@ categorySchema.index(
       locale: 'en',
       strength: 2,
     },
+    partialFilterExpression: {
+      deletedAt: { $type: 'null' },
+    },
   }
 );
 
