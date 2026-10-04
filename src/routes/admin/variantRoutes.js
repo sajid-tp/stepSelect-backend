@@ -1,14 +1,13 @@
 const express = require('express');
 const router = express.Router();
 
-const {
-  updateVariant,
-} = require('../../controllers/admin/variantController');
+const {updateVariant,getVariants,getVariant,deleteVariant,toggleVariantStatus,addVariant} = require('../../controllers/admin/variantController');
 
-const {
-  adminProtect,
-} = require('../../middleware/authMiddleware');
-
+router.get('/products/:productId/variants', getVariants);
+router.get('/:variantId',getVariant);
+router.post('/:productId/variants',addVariant);
 router.patch('/:variantId', updateVariant);
+router.delete('/:variantId',deleteVariant);
+router.patch('/:variantId/status',toggleVariantStatus);
 
 module.exports = router;
