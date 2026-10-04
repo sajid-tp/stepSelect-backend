@@ -43,7 +43,10 @@ const updateVariant = async (
   // 2. Find variant
   // -----------------------------------
 
-  const existingVariant = await Variant.findById(variantId);
+  const existingVariant = await Variant.findOne({
+  _id: variantId,
+  deletedAt: null,
+});
 
   if (!existingVariant) {
     throw createError(
@@ -188,9 +191,10 @@ const updateVariant = async (
   // 9. Make sure parent product exists
   // -----------------------------------
 
-  const product = await Product.findById(
-    existingVariant.productId
-  );
+const product = await Product.findOne({
+  _id: existingVariant.productId,
+  deletedAt: null,
+});
 
   if (!product) {
     throw createError(
@@ -252,7 +256,58 @@ const updateVariant = async (
   };
 };
 
+const deleteVariant = async (variantId) => {
+
+  // -----------------------------------
+  // 1. Validate variant ID
+  // -----------------------------------
+
+  if (!mongoose.Types.ObjectId.isValid(variantId)) {
+    throw createError(
+      'Invalid variant id.',
+      400,
+      'INVALID_VARIANT_ID'
+    );
+  }
+
+
+  // -----------------------------------
+  // 2. Find non-deleted variant
+  // -----------------------------------
+
+  const existingVariant = await Variant.findOne({
+    _id: variantId,
+    deletedAt: null,
+  });
+
+  if (!existingVariant) {
+    throw createError(
+      'Variant not found.',
+      404,
+      'VARIANT_NOT_FOUND'
+    );
+  }
+
+
+  // -----------------------------------
+  // 3. Soft delete variant
+  // -----------------------------------
+
+  existingVariant.deletedAt = new Date();
+
+  await existingVariant.save();
+
+
+  // -----------------------------------
+  // 4. Return response
+  // -----------------------------------
+
+  return {
+    message: 'Variant deleted successfully.',
+  };
+};
 
 module.exports = {
   updateVariant,
+  deleteVariant
 };

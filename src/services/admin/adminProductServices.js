@@ -18,6 +18,196 @@ const createError = (
 };
 
 
+
+const getProducts = async ({
+  search,
+  page = 1,
+  limit = 5,
+}) => {
+
+  const pageNum = Number(page);
+  const limitNum = Number(limit);
+
+  if (pageNum < 1) {
+    throw createError(
+      'Page must be greater than 0.',
+      400,
+      'INVALID_PAGE'
+    );
+  }
+
+  if (limitNum < 1) {
+    throw createError(
+      'Limit must be greater than 0.',
+      400,
+      'INVALID_LIMIT'
+    );
+  }
+
+  const filter = {
+    deletedAt : null
+  };
+
+  // Search by product name
+  if (search && search.trim()) {
+    const escapedSearch = search
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    filter.productName = {
+      $regex: escapedSearch,
+      $options: 'i',
+    };
+  }
+
+  const skip = (pageNum - 1) * limitNum;
+
+  const [products, totalProducts] = await Promise.all([
+    Product.find(filter)
+      .populate('brandId', 'brandName')
+      .populate('categoryId', 'categoryName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum),
+
+    Product.countDocuments(filter),
+  ]);
+
+  const productIds = products.map(
+    (product) => product._id
+  );
+
+  const variants = await Variant.find({
+    productId: { $in: productIds },
+    isActive: true,
+    deletedAt : null
+  })
+    .select('productId price images')
+    .sort({ price: 1 });
+
+  const variantMap = new Map();
+
+  for (const variant of variants) {
+
+    const productId = variant.productId.toString();
+
+    // First variant will be the lowest-priced
+    // because variants are sorted by price ascending
+    if (!variantMap.has(productId)) {
+      variantMap.set(productId, variant);
+    }
+  }
+
+  const data = products.map((product) => {
+
+    const variant = variantMap.get(
+      product._id.toString()
+    );
+
+    return {
+      id: product._id,
+
+      productName: product.productName,
+
+      brand: {
+        id: product.brandId?._id,
+        name: product.brandId?.brandName,
+      },
+
+      category: {
+        id: product.categoryId?._id,
+        name: product.categoryId?.categoryName,
+      },
+
+      isActive: product.isActive,
+
+      basePrice: variant ? variant.price : null,
+
+      image: variant?.images?.[0] || null,
+
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+    };
+  });
+
+  return {
+    products: data,
+
+    pagination: {
+      currentPage: pageNum,
+      totalPages: Math.ceil(totalProducts / limitNum),
+      totalProducts,
+      limit: limitNum,
+    },
+  };
+};
+
+const getProduct = async (productId) => {
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    throw createError(
+      'Invalid product id.',
+      400,
+      'INVALID_PRODUCT_ID'
+    );
+  }
+
+  const product = await Product.findOne({
+    _id: productId,
+    deletedAt: null,
+  })
+    .populate('brandId', 'brandName')
+    .populate('categoryId', 'categoryName');
+
+  if (!product) {
+    throw createError(
+      'Product not found.',
+      404,
+      'PRODUCT_NOT_FOUND'
+    );
+  }
+
+  const variants = await Variant.find({
+    productId: product._id,
+    deletedAt: null,
+  });
+
+  return {
+    id: product._id,
+
+    productName: product.productName,
+
+    description: product.description,
+
+    brand: {
+      id: product.brandId?._id,
+      name: product.brandId?.brandName,
+    },
+
+    category: {
+      id: product.categoryId?._id,
+      name: product.categoryId?.categoryName,
+    },
+
+    isActive: product.isActive,
+
+    variants: variants.map((variant) => ({
+      id: variant._id,
+      color: variant.color,
+      price: variant.price,
+      images: variant.images,
+      sizes: variant.sizes,
+      isActive: variant.isActive,
+      createdAt: variant.createdAt,
+      updatedAt: variant.updatedAt,
+    })),
+
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
+  };
+};
+
+
 const createProduct = async ({
   productName,
   description,
@@ -32,7 +222,7 @@ const createProduct = async ({
 
   const name = (productName || '').trim();
 
-  if (!name) {
+    if (!name) {
     throw createError(
       'Product name is required.',
       400,
@@ -40,6 +230,21 @@ const createProduct = async ({
     );
   }
 
+  const existingProduct = await Product.findOne({
+  productName: name,
+  deletedAt: null,
+}).collation({
+  locale: 'en',
+  strength: 2,
+});
+
+if (existingProduct) {
+  throw createError(
+    'A product with this name already exists.',
+    409,
+    'PRODUCT_ALREADY_EXISTS'
+  );
+}
 
   // -----------------------------------
   // 2. Validate description
@@ -99,7 +304,10 @@ const createProduct = async ({
   // 6. Check category exists
   // -----------------------------------
 
-  const category = await Category.findById(categoryId);
+const category = await Category.findOne({
+  _id: categoryId,
+  deletedAt: null,
+});
 
   if (!category) {
     throw createError(
@@ -127,7 +335,10 @@ const createProduct = async ({
   // 8. Check brand exists
   // -----------------------------------
 
-  const brand = await Brand.findById(brandId);
+ const brand = await Brand.findOne({
+  _id: brandId,
+  deletedAt: null,
+});
 
   if (!brand) {
     throw createError(
@@ -328,6 +539,8 @@ const createProduct = async ({
   };
 };
 
+
+
 const updateProduct = async (
   productId,
   {
@@ -354,8 +567,10 @@ const updateProduct = async (
   // -----------------------------------
   // 2. Find product
   // -----------------------------------
-
-  const existingProduct = await Product.findById(productId);
+const existingProduct = await Product.findOne({
+  _id: productId,
+  deletedAt: null,
+});
 
   if (!existingProduct) {
     throw createError(
@@ -394,6 +609,22 @@ const updateProduct = async (
     );
   }
 
+  const duplicateProduct = await Product.findOne({
+  _id: { $ne: productId },
+  productName: name,
+  deletedAt: null,
+}).collation({
+  locale: 'en',
+  strength: 2,
+});
+
+if (duplicateProduct) {
+  throw createError(
+    'A product with this name already exists.',
+    409,
+    'PRODUCT_ALREADY_EXISTS'
+  );
+}
 
   // -----------------------------------
   // 5. Validate description
@@ -442,7 +673,10 @@ const updateProduct = async (
   // 8. Check category
   // -----------------------------------
 
-  const category = await Category.findById(categoryId);
+ const category = await Category.findOne({
+  _id: categoryId,
+  deletedAt: null,
+});
 
   if (!category) {
     throw createError(
@@ -470,7 +704,10 @@ const updateProduct = async (
   // 10. Check brand
   // -----------------------------------
 
-  const brand = await Brand.findById(brandId);
+  const brand = await Brand.findOne({
+  _id: brandId,
+  deletedAt: null,
+});
 
   if (!brand) {
     throw createError(
@@ -528,7 +765,139 @@ const updateProduct = async (
 };
 
 
+
+const deleteProduct = async (productId) => {
+
+  // -----------------------------------
+  // 1. Validate product ID
+  // -----------------------------------
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    throw createError(
+      'Invalid product id.',
+      400,
+      'INVALID_PRODUCT_ID'
+    );
+  }
+
+
+  // -----------------------------------
+  // 2. Find non-deleted product
+  // -----------------------------------
+
+  const existingProduct = await Product.findOne({
+    _id: productId,
+    deletedAt: null,
+  });
+
+  if (!existingProduct) {
+    throw createError(
+      'Product not found.',
+      404,
+      'PRODUCT_NOT_FOUND'
+    );
+  }
+
+
+  // -----------------------------------
+  // 3. Soft delete product
+  // -----------------------------------
+
+  const deletedAt = new Date();
+
+  existingProduct.deletedAt = deletedAt;
+
+  await existingProduct.save();
+
+
+  // -----------------------------------
+  // 4. Soft delete its variants
+  // -----------------------------------
+
+  await Variant.updateMany(
+    {
+      productId: existingProduct._id,
+      deletedAt: null,
+    },
+    {
+      $set: {
+        deletedAt: deletedAt,
+      },
+    }
+  );
+
+
+  // -----------------------------------
+  // 5. Return response
+  // -----------------------------------
+
+  return {
+    message: 'Product deleted successfully.',
+  };
+};
+
+const toggleProductStatus = async (productId) => {
+
+  // -----------------------------------
+  // 1. Validate product ID
+  // -----------------------------------
+
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    throw createError(
+      'Invalid product id.',
+      400,
+      'INVALID_PRODUCT_ID'
+    );
+  }
+
+
+  // -----------------------------------
+  // 2. Find non-deleted product
+  // -----------------------------------
+
+  const existingProduct = await Product.findOne({
+    _id: productId,
+    deletedAt: null,
+  });
+
+  if (!existingProduct) {
+    throw createError(
+      'Product not found.',
+      404,
+      'PRODUCT_NOT_FOUND'
+    );
+  }
+
+
+  // -----------------------------------
+  // 3. Toggle status
+  // -----------------------------------
+
+  existingProduct.isActive = !existingProduct.isActive;
+
+  await existingProduct.save();
+
+
+  // -----------------------------------
+  // 4. Return updated status
+  // -----------------------------------
+
+  return {
+    message: `Product ${
+      existingProduct.isActive ? 'activated' : 'deactivated'
+    } successfully.`,
+    isActive: existingProduct.isActive,
+  };
+};
+
+
+
+
 module.exports = {
   createProduct,
-  updateProduct
+  updateProduct,
+  getProducts,
+  getProduct,
+  deleteProduct,
+  toggleProductStatus
 };

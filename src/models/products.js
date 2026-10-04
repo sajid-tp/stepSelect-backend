@@ -16,13 +16,13 @@ const productSchema = mongoose.Schema(
 
     brandId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'brand',
+      ref: 'Brand',
       required: true,
     },
 
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'category',
+      ref: 'Category',
       required: true,
     },
 
@@ -30,7 +30,7 @@ const productSchema = mongoose.Schema(
       type: Boolean,
       default: true,
     },
-    
+
      deletedAt:{
       type : Date,
       default : null,

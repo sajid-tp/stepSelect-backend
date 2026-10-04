@@ -46,6 +46,6 @@ brandSchema.index(
   }
 );
 
-const brandModel = mongoose.model('brand', brandSchema);
+const brandModel = mongoose.model('Brand', brandSchema);
 
 module.exports = brandModel;
