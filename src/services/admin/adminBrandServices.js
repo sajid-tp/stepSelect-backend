@@ -17,7 +17,7 @@ const createError = (
 const getBrands = async ({ search, page = 1 }) => {
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-  const limitNum = 5;
+  const limitNum = 8;
 
   const filter = {
     deletedAt: null,

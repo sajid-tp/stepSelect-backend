@@ -16,7 +16,7 @@ const createError = (
 const getCategories = async ({ search, page = 1 }) => {
   
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-  const limitNum = 5;
+  const limitNum = 8;
 
   const filter = {
     deletedAt : null
@@ -63,6 +63,10 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
 
   if (!name) {
     throw createError('Category name is required.', 400, 'CATEGORY_NAME_REQUIRED');
+  }
+
+    if (name && name.length<6) {
+    throw createError('Category name is required with atleast 6 characters', 400, 'CATEGORY_NAME_REQUIRED');
   }
 
   const existingCategory = await Category.findOne({ categoryName: name, deletedAt:null })

@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -15,6 +16,8 @@ const adminCategoryRoutes = require('./src/routes/admin/categoryRoutes');
 const adminBrandRoutes = require('./src/routes/admin/brandRoutes');
 const adminProducts = require('./src/routes/admin/productRoutes');
 const adminVariants = require('./src/routes/admin/variantRoutes');
+const adminUploadRoutes =
+  require("./src/routes/admin/uploadRoutes");
 const app = express();
 
 app.use(cors({
@@ -38,6 +41,10 @@ app.use('/api/admin/categories',adminCategoryRoutes);
 app.use('/api/admin/brands', adminBrandRoutes);
 app.use('/api/admin/products',adminProducts);
 app.use('/api/admin/variants',adminVariants);
+app.use(
+  "/api/admin/uploads",
+  adminUploadRoutes
+);
 
 
 const PORT = process.env.PORT || 5000;
