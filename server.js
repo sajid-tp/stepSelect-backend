@@ -12,6 +12,9 @@ const adminAuthRoutes = require('./src/routes/admin/authRoutes');
 const adminUserRoutes = require('./src/routes/admin/userRoutes');
 const accountRoutes = require('./src/routes/user/profileRoutes');
 const addressRoutes = require('./src/routes/user/addressRoutes');
+const productRoutes = require('./src/routes/user/productRoutes');
+const categoryRoutes = require('./src/routes/user/categoryRoutes');
+const brandRoutes = require('./src/routes/user/brandRoutes');
 const adminCategoryRoutes = require('./src/routes/admin/categoryRoutes');
 const adminBrandRoutes = require('./src/routes/admin/brandRoutes');
 const adminProducts = require('./src/routes/admin/productRoutes');
@@ -33,7 +36,9 @@ connectDB();
 app.use('/api/auth', authRoutes);
 app.use('/api/account',accountRoutes);
 app.use('/api/addresses',addressRoutes);
-
+app.use('/api/products',productRoutes);
+app.use('/api/categories',categoryRoutes);
+app.use('/api/brands',brandRoutes);
 //admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/users',adminUserRoutes);
