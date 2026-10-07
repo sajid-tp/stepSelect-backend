@@ -1,45 +1,21 @@
+const mongoose = require('mongoose');
 const Product = require('../../models/products');
 const Variant = require('../../models/variants');
 const Category = require('../../models/categories');
 const Brand = require('../../models/brands');
 
-const mongoose = require('mongoose');
-
-
-// -----------------------------------------
-// Error helper
-// -----------------------------------------
-
-const createError = (
-  message,
-  statusCode = 400,
-  code = 'BAD_REQUEST'
-) => {
-
+const createError = (message, statusCode = 400, code = 'BAD_REQUEST') => {
   const error = new Error(message);
-
   error.statusCode = statusCode;
   error.code = code;
-
   return error;
 };
 
+const isObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(value);
 
-// -----------------------------------------
-// Escape regex
-// -----------------------------------------
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const escapeRegex = (value) => {
-
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-};
-
-
-// -----------------------------------------
-// GET PRODUCTS
-// -----------------------------------------
-
+// 1. Get Paginated & Filtered Products
 const getProducts = async ({
   search,
   category,
@@ -50,752 +26,245 @@ const getProducts = async ({
   page = 1,
   limit = 12,
 }) => {
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 12, 1), 50);
 
-  const pageNum = Number(page);
-  const limitNum = Number(limit);
+  const emptyResult = {
+    products: [],
+    pagination: { page: pageNum, limit: limitNum, totalResults: 0, totalPages: 0 },
+  };
 
-
-  // -----------------------------------------
-  // Validate page
-  // -----------------------------------------
-
-  if (!Number.isInteger(pageNum) || pageNum < 1) {
-
-    throw createError(
-      'Page must be greater than 0.',
-      400,
-      'INVALID_PAGE'
-    );
-
-  }
-
-
-  // -----------------------------------------
-  // Validate limit
-  // -----------------------------------------
-
-  if (!Number.isInteger(limitNum) || limitNum < 1) {
-
-    throw createError(
-      'Limit must be greater than 0.',
-      400,
-      'INVALID_LIMIT'
-    );
-
-  }
-
-
-  // -----------------------------------------
   // Validate price
-  // -----------------------------------------
-
   let minPriceNum;
   let maxPriceNum;
 
-
-  if (
-    minPrice !== undefined &&
-    minPrice !== ''
-  ) {
-
+  if (minPrice !== undefined && minPrice !== '') {
     minPriceNum = Number(minPrice);
-
-    if (
-      Number.isNaN(minPriceNum) ||
-      minPriceNum < 0
-    ) {
-
-      throw createError(
-        'Invalid minimum price.',
-        400,
-        'INVALID_MIN_PRICE'
-      );
-
+    if (!Number.isFinite(minPriceNum) || minPriceNum < 0) {
+      throw createError('Invalid minimum price.', 400, 'INVALID_MIN_PRICE');
     }
-
   }
 
-
-  if (
-    maxPrice !== undefined &&
-    maxPrice !== ''
-  ) {
-
+  if (maxPrice !== undefined && maxPrice !== '') {
     maxPriceNum = Number(maxPrice);
-
-    if (
-      Number.isNaN(maxPriceNum) ||
-      maxPriceNum < 0
-    ) {
-
-      throw createError(
-        'Invalid maximum price.',
-        400,
-        'INVALID_MAX_PRICE'
-      );
-
+    if (!Number.isFinite(maxPriceNum) || maxPriceNum < 0) {
+      throw createError('Invalid maximum price.', 400, 'INVALID_MAX_PRICE');
     }
-
   }
 
-
-  if (
-    minPriceNum !== undefined &&
-    maxPriceNum !== undefined &&
-    minPriceNum > maxPriceNum
-  ) {
-
+  if (minPriceNum !== undefined && maxPriceNum !== undefined && minPriceNum > maxPriceNum) {
     throw createError(
       'Minimum price cannot be greater than maximum price.',
       400,
       'INVALID_PRICE_RANGE'
     );
-
   }
 
-
-  // -----------------------------------------
   // Validate sort
-  // -----------------------------------------
-
-  const allowedSorts = [
-    'newest',
-    'price_asc',
-    'price_desc',
-    'name_asc',
-    'name_desc',
-  ];
-
+  const sortOptions = {
+    newest: { createdAt: -1, _id: -1 },
+    price_asc: { price: 1, _id: 1 },
+    price_desc: { price: -1, _id: 1 },
+    name_asc: { productName: 1, _id: 1 },
+    name_desc: { productName: -1, _id: 1 },
+  };
 
   const sortValue = sort || 'newest';
 
-
-  if (!allowedSorts.includes(sortValue)) {
-
-    throw createError(
-      'Invalid sort option.',
-      400,
-      'INVALID_SORT'
-    );
-
+  if (!Object.hasOwn(sortOptions, sortValue)) {
+    throw createError('Invalid sort option.', 400, 'INVALID_SORT');
   }
 
-
-  // -----------------------------------------
   // Product filter
-  // -----------------------------------------
+  const filter = { isActive: true, deletedAt: null };
 
-  const productFilter = {
-    deletedAt: null,
-    isActive: true,
-  };
-
-
-  // -----------------------------------------
-  // Search
-  // -----------------------------------------
-
-  if (search && search.trim()) {
-
-    const escapedSearch = escapeRegex(
-      search.trim()
-    );
-
-    productFilter.productName = {
-      $regex: escapedSearch,
-      $options: 'i',
-    };
-
+  // Search filtering
+  if (typeof search === 'string' && search.trim()) {
+    filter.productName = { $regex: escapeRegex(search.trim()), $options: 'i' };
   }
 
-
-  // -----------------------------------------
-  // Category
-  // -----------------------------------------
-
-  if (category && category.trim()) {
-
+  // Category filtering (id or name)
+  if (typeof category === 'string' && category.trim()) {
     const categoryValue = category.trim();
 
-    const categoryRegex = new RegExp(
-      `^${escapeRegex(
-        categoryValue.replace(/-/g, ' ')
-      )}$`,
-      'i'
-    );
+    if (isObjectId(categoryValue)) {
+      // aggregate() does not auto-cast strings, so convert to ObjectId
+      filter.categoryId = new mongoose.Types.ObjectId(categoryValue);
+    } else {
+      const categoryDoc = await Category.findOne({
+        isActive: true,
+        deletedAt: null,
+        categoryName: new RegExp(`^${escapeRegex(categoryValue.replace(/-/g, ' '))}$`, 'i'),
+      }).select('_id');
 
+      if (!categoryDoc) return emptyResult;
 
-    const categoryDoc = await Category.findOne({
-      deletedAt: null,
-      isActive: true,
-      $or: [
-        {
-          slug: categoryValue,
-        },
-        {
-          categoryName: categoryRegex,
-        },
-      ],
-    }).select('_id');
-
-
-    if (!categoryDoc) {
-
-      return {
-        products: [],
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          totalResults: 0,
-          totalPages: 0,
-        },
-      };
-
+      filter.categoryId = categoryDoc._id;
     }
-
-
-    productFilter.categoryId = categoryDoc._id;
-
   }
 
-
-  // -----------------------------------------
-  // Brand
-  // -----------------------------------------
-
-  if (brand && brand.trim()) {
-
+  // Brand filtering (id or name)
+  if (typeof brand === 'string' && brand.trim()) {
     const brandValue = brand.trim();
 
-    const brandDoc = await Brand.findOne({
-      deletedAt: null,
-      isActive: true,
-      $or: [
-        {
-          slug: brandValue,
-        },
-        {
-          brandName: new RegExp(
-            `^${escapeRegex(
-              brandValue.replace(/-/g, ' ')
-            )}$`,
-            'i'
-          ),
-        },
-      ],
-    }).select('_id');
+    if (isObjectId(brandValue)) {
+      filter.brandId = new mongoose.Types.ObjectId(brandValue);
+    } else {
+      const brandDoc = await Brand.findOne({
+        isActive: true,
+        deletedAt: null,
+        brandName: new RegExp(`^${escapeRegex(brandValue.replace(/-/g, ' '))}$`, 'i'),
+      }).select('_id');
 
+      if (!brandDoc) return emptyResult;
 
-    if (!brandDoc) {
-
-      return {
-        products: [],
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          totalResults: 0,
-          totalPages: 0,
-        },
-      };
-
+      filter.brandId = brandDoc._id;
     }
-
-
-    productFilter.brandId = brandDoc._id;
-
   }
 
-
-  // -----------------------------------------
-  // Find products
-  // -----------------------------------------
-
-  const products = await Product.find(productFilter)
-    .select(
-      'productName brandId categoryId isActive createdAt updatedAt'
-    )
-    .lean();
-
-
-  if (products.length === 0) {
-
-    return {
-      products: [],
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        totalResults: 0,
-        totalPages: 0,
+  // Price lives on variants, so we join the cheapest active variant
+  // to each product, then filter / sort / paginate in the database.
+  const pipeline = [
+    { $match: filter },
+    {
+      $lookup: {
+        from: Variant.collection.name,
+        let: { productId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$productId', '$$productId'] },
+              isActive: true,
+              deletedAt: null,
+            },
+          },
+          { $sort: { price: 1 } },
+          { $limit: 1 },
+          { $project: { price: 1, images: 1, discountPercent: 1 } },
+        ],
+        as: 'variant',
       },
-    };
+    },
+    // products without an active variant are removed here
+    { $unwind: '$variant' },
+    { $addFields: { price: '$variant.price' } },
+  ];
 
+  // Price filtering
+  const priceFilter = {};
+  if (minPriceNum !== undefined) priceFilter.$gte = minPriceNum;
+  if (maxPriceNum !== undefined) priceFilter.$lte = maxPriceNum;
+
+  if (Object.keys(priceFilter).length > 0) {
+    pipeline.push({ $match: { price: priceFilter } });
   }
 
-
-  // -----------------------------------------
-  // Get active variants
-  // -----------------------------------------
-
-  const productIds = products.map(
-    product => product._id
+  // Sort + paginate + count in one query
+  pipeline.push(
+    { $sort: sortOptions[sortValue] },
+    {
+      $facet: {
+        items: [
+          { $skip: (pageNum - 1) * limitNum },
+          { $limit: limitNum },
+          {
+            $project: {
+              _id: 0,
+              id: '$_id',
+              name: '$productName',
+              brandId: 1,
+              categoryId: 1,
+              price: 1,
+              discountPercent: { $ifNull: ['$variant.discountPercent', 0] },
+              images: { $ifNull: ['$variant.images', []] },
+              isActive: 1,
+            },
+          },
+        ],
+        total: [{ $count: 'count' }],
+      },
+    }
   );
 
+  const [result] = await Product.aggregate(pipeline).collation({
+    locale: 'en',
+    strength: 2,
+  });
 
-  const variants = await Variant.find({
-    productId: {
-      $in: productIds,
+  const totalResults = result.total[0]?.count || 0;
+  const totalPages = Math.ceil(totalResults / limitNum);
+
+  return {
+    products: result.items,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      totalResults,
+      totalPages,
     },
+  };
+};
+
+// 2. Get Product Details
+const getProduct = async (productId) => {
+  if (!mongoose.Types.ObjectId.isValid(productId)) {
+    throw createError('Invalid product id.', 400, 'INVALID_PRODUCT_ID');
+  }
+
+  const product = await Product.findOne({
+    _id: productId,
     isActive: true,
     deletedAt: null,
   })
-    .select(
-      'productId price images discountPercent'
-    )
-    .sort({
-      price: 1,
-    })
+    .populate('brandId', 'brandName')
+    .populate('categoryId', 'categoryName')
     .lean();
 
-
-  // -----------------------------------------
-  // Group variants by product
-  // -----------------------------------------
-
-  const variantMap = new Map();
-
-
-  for (const variant of variants) {
-
-    const productId =
-      variant.productId.toString();
-
-
-    if (!variantMap.has(productId)) {
-
-      variantMap.set(
-        productId,
-        variant
-      );
-
-    }
-
-  }
-
-
-  // -----------------------------------------
-  // Build product data
-  // -----------------------------------------
-
-  let productData = products
-    .map(product => {
-
-      const variant =
-        variantMap.get(
-          product._id.toString()
-        );
-
-
-      // Product must have at least
-      // one active variant.
-
-      if (!variant) {
-        return null;
-      }
-
-
-      return {
-
-        id: product._id,
-
-        name: product.productName,
-
-        brandId: product.brandId,
-
-        categoryId: product.categoryId,
-
-        price: variant.price,
-
-        discountPercent:
-          variant.discountPercent || 0,
-
-        images:
-          variant.images || [],
-
-        isActive:
-          product.isActive,
-
-        createdAt:
-          product.createdAt,
-
-      };
-
-    })
-    .filter(Boolean);
-
-
-  // -----------------------------------------
-  // Price filtering
-  // -----------------------------------------
-
-  if (
-    minPriceNum !== undefined
-  ) {
-
-    productData = productData.filter(
-      product =>
-        product.price >= minPriceNum
-    );
-
-  }
-
-
-  if (
-    maxPriceNum !== undefined
-  ) {
-
-    productData = productData.filter(
-      product =>
-        product.price <= maxPriceNum
-    );
-
-  }
-
-
-  // -----------------------------------------
-  // Sorting
-  // -----------------------------------------
-
-  switch (sortValue) {
-
-    case 'price_asc':
-
-      productData.sort(
-        (a, b) =>
-          a.price - b.price
-      );
-
-      break;
-
-
-    case 'price_desc':
-
-      productData.sort(
-        (a, b) =>
-          b.price - a.price
-      );
-
-      break;
-
-
-    case 'name_asc':
-
-      productData.sort(
-        (a, b) =>
-          a.name.localeCompare(
-            b.name
-          )
-      );
-
-      break;
-
-
-    case 'name_desc':
-
-      productData.sort(
-        (a, b) =>
-          b.name.localeCompare(
-            a.name
-          )
-      );
-
-      break;
-
-
-    case 'newest':
-    default:
-
-      productData.sort(
-        (a, b) =>
-          new Date(b.createdAt) -
-          new Date(a.createdAt)
-      );
-
-      break;
-
-  }
-
-
-  // -----------------------------------------
-  // Pagination
-  // -----------------------------------------
-
-  const totalResults =
-    productData.length;
-
-
-  const totalPages =
-    Math.ceil(
-      totalResults / limitNum
-    );
-
-
-  const skip =
-    (pageNum - 1) * limitNum;
-
-
-  const paginatedProducts =
-    productData.slice(
-      skip,
-      skip + limitNum
-    );
-
-
-  // -----------------------------------------
-  // Return
-  // -----------------------------------------
-
-  return {
-
-    products:
-      paginatedProducts.map(
-        product => ({
-
-          id: product.id,
-
-          name: product.name,
-
-          brandId:
-            product.brandId,
-
-          categoryId:
-            product.categoryId,
-
-          price:
-            product.price,
-
-          discountPercent:
-            product.discountPercent,
-
-          images:
-            product.images,
-
-          isActive:
-            product.isActive,
-
-        })
-      ),
-
-    pagination: {
-
-      page: pageNum,
-
-      limit: limitNum,
-
-      totalResults,
-
-      totalPages,
-
-    },
-
-  };
-
-};
-
-
-// -----------------------------------------
-// GET PRODUCT DETAILS
-// -----------------------------------------
-
-const getProduct = async (
-  productId
-) => {
-
-  // -----------------------------------------
-  // Validate product ID
-  // -----------------------------------------
-
-  if (
-    !mongoose.Types.ObjectId.isValid(
-      productId
-    )
-  ) {
-
-    throw createError(
-      'Invalid product id.',
-      400,
-      'INVALID_PRODUCT_ID'
-    );
-
-  }
-
-
-  // -----------------------------------------
-  // Get product
-  // -----------------------------------------
-
-  const product =
-    await Product.findOne({
-
-      _id: productId,
-
-      deletedAt: null,
-
-      isActive: true,
-
-    })
-      .populate(
-        'brandId',
-        'brandName slug logo'
-      )
-      .populate(
-        'categoryId',
-        'categoryName iconClass'
-      )
-      .lean();
-
-
   if (!product) {
-
-    throw createError(
-      'Product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
-    );
-
+    throw createError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
   }
 
-
-  // -----------------------------------------
-  // Get active variants
-  // -----------------------------------------
-
-  const variants =
-    await Variant.find({
-
-      productId:
-        product._id,
-
-      deletedAt: null,
-
-      isActive: true,
-
-    })
-      .select(
-        'color price images sizes discountPercent'
-      )
-      .lean();
-
+  const variants = await Variant.find({
+    productId: product._id,
+    isActive: true,
+    deletedAt: null,
+  })
+    .select('color price discountPercent images sizes')
+    .lean();
 
   if (variants.length === 0) {
-
-    throw createError(
-      'Product is currently unavailable.',
-      404,
-      'PRODUCT_UNAVAILABLE'
-    );
-
+    throw createError('Product is currently unavailable.', 404, 'PRODUCT_UNAVAILABLE');
   }
-
-
-  // -----------------------------------------
-  // Collect product images
-  // -----------------------------------------
-
-  const imageSet = new Set();
-
-
-  for (const variant of variants) {
-
-    for (
-      const image of variant.images || []
-    ) {
-
-      imageSet.add(image);
-
-    }
-
-  }
-
-
-  const images =
-    Array.from(imageSet);
-
-
-  // -----------------------------------------
-  // Flatten sizes
-  // -----------------------------------------
-
-  const variantData = [];
-
-
-  for (const variant of variants) {
-
-    for (
-      const sizeItem of variant.sizes || []
-    ) {
-
-      variantData.push({
-
-        id: variant._id,
-
-        color: variant.color,
-
-        size: sizeItem.size,
-
-        price: variant.price,
-
-        quantity: sizeItem.stock,
-
-      });
-
-    }
-
-  }
-
-
-  // -----------------------------------------
-  // Return
-  // -----------------------------------------
 
   return {
-
     id: product._id,
-
     name: product.productName,
-
     description: product.description,
-
     brand: {
-
       id: product.brandId?._id,
-
-      name:
-        product.brandId?.brandName,
-
+      name: product.brandId?.brandName,
     },
-
     category: {
-
       id: product.categoryId?._id,
-
-      categoryName:
-        product.categoryId?.categoryName,
-
+      categoryName: product.categoryId?.categoryName,
     },
-
-    images,
-
-    variants: variantData,
-
+    // one entry per color, each with its own images and sizes
+    variants: variants.map((variant) => ({
+      id: variant._id,
+      color: variant.color,
+      price: variant.price,
+      discountPercent: variant.discountPercent || 0,
+      images: variant.images || [],
+      sizes: (variant.sizes || []).map((s) => ({
+        size: s.size,
+        quantity: s.stock,
+      })),
+    })),
   };
-
 };
 
 
 module.exports = {
-
   getProducts,
-
   getProduct,
-
 };

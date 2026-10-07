@@ -109,6 +109,8 @@ const getProducts = async ({
 
       productName: product.productName,
 
+       description: product.description,
+
       brand: {
         id: product.brandId?._id,
         name: product.brandId?.brandName,
