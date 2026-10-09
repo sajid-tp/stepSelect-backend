@@ -8,15 +8,17 @@ const {
   clearCart,
 } = require('../../controllers/user/cartController');
 
+
+
 const router = express.Router();
 
 // Every cart route needs a logged-in user (one line, so none can be forgotten).
 router.use(protect);
 
-router.get('/', getCart);
-router.post('/', addToCart);
-router.patch('/items/:variantId', updateCartItem);
-router.delete('/items/:variantId', removeCartItem);
-router.delete('/', clearCart);
+router.get('/', protect, getCart);
+router.post('/', protect, addToCart);
+router.patch('/items/:variantId', protect, updateCartItem);
+router.delete('/items/:variantId', protect, removeCartItem);
+router.delete('/', protect, clearCart);
 
 module.exports = router;

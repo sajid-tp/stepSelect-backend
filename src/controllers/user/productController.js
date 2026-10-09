@@ -50,7 +50,28 @@ const getProduct = async (req, res) => {
   }
 };
 
+
+
+// GET /api/products/:productId/related?limit=4
+const getRelatedProducts = async (req, res) => {
+  try {
+    const data = await productService.getRelatedProducts(
+      req.params.productId,
+      req.query.limit
+    );
+    return res.status(200).json({ data });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({
+      error: {
+        code: err.code || 'SERVER_ERROR',
+        message: err.statusCode ? err.message : 'Something went wrong. Please try again.',
+      },
+    });
+  }
+};
+
 module.exports = {
   getProducts,
   getProduct,
+  getRelatedProducts
 };

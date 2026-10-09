@@ -299,6 +299,77 @@ const getProduct = async (productId) => {
 };
 
 
+
+
+// Related products: same category, never the current product, in stock only.
+const getRelatedProducts = async (productId, limit = 4) => {
+  if (!/^[0-9a-fA-F]{24}$/.test(String(productId))) {
+    throw createError('Invalid product id.', 400, 'INVALID_PRODUCT_ID');
+  }
+
+  const max = Math.min(Math.max(Number.parseInt(limit, 10) || 4, 1), 12);
+
+  const current = await Product.findOne({
+    _id: productId,
+    isActive: true,
+    deletedAt: null,
+  })
+    .select('categoryId')
+    .lean();
+
+  if (!current) {
+    throw createError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
+  }
+
+  const products = await Product.find({
+    categoryId: current.categoryId,
+    _id: { $ne: current._id },
+    isActive: true,
+    deletedAt: null,
+  })
+    .select('productName brandId')
+    .populate('brandId', 'brandName')
+    .sort({ createdAt: -1 })
+    .limit(max * 3) // spare ones, in case some have nothing in stock
+    .lean();
+
+  const variants = await Variant.find({
+    productId: { $in: products.map((p) => p._id) },
+    isActive: true,
+    deletedAt: null,
+    sizes: { $elemMatch: { stock: { $gt: 0 } } },
+  })
+    .select('productId price discountPercent images')
+    .sort({ createdAt: 1 })
+    .lean();
+
+  // first in-stock variant per product (the same one the shop card's quick add uses)
+  const firstVariant = new Map();
+  variants.forEach((v) => {
+    if (!firstVariant.has(String(v.productId))) firstVariant.set(String(v.productId), v);
+  });
+
+  return {
+    products: products
+      .filter((p) => firstVariant.has(String(p._id)))
+      .slice(0, max)
+      .map((p) => {
+        const v = firstVariant.get(String(p._id));
+        return {
+          id: String(p._id),
+          name: p.productName,
+          brand: p.brandId ? { id: String(p.brandId._id), name: p.brandId.name } : null,
+          images: (v.images || [])
+            .map((image) => (typeof image === 'string' ? image : image?.url))
+            .filter(Boolean),
+          price: Number(v.price) || 0,
+          discountPercent: Number(v.discountPercent) || 0,
+        };
+      }),
+  };
+};
+
+
 module.exports = {
   getProducts,
   getProduct,
