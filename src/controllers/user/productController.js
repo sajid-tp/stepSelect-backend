@@ -3,12 +3,13 @@ const userProductService = require('../../services/user/productService');
 // GET /api/products
 const getProducts = async (req, res) => {
   try {
-    const { search, category, brand, minPrice, maxPrice, sort, page, limit } = req.query;
+    const { search, category, brand, gender, minPrice, maxPrice, sort, page, limit } = req.query;
 
     const data = await userProductService.getProducts({
       search,
       category,
       brand,
+      gender,
       minPrice,
       maxPrice,
       sort,

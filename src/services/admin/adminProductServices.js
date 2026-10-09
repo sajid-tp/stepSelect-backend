@@ -17,6 +17,8 @@ const createError = (
   return error;
 };
 
+const GENDERS = ['men', 'women', 'unisex'];
+
 
 
 const getProducts = async ({
@@ -111,6 +113,8 @@ const getProducts = async ({
 
        description: product.description,
 
+       gender : product.gender,
+
       brand: {
         id: product.brandId?._id,
         name: product.brandId?.brandName,
@@ -181,6 +185,8 @@ const getProduct = async (productId) => {
 
     description: product.description,
 
+    gender : product.gender,
+
     brand: {
       id: product.brandId?._id,
       name: product.brandId?.brandName,
@@ -213,6 +219,7 @@ const getProduct = async (productId) => {
 const createProduct = async ({
   productName,
   description,
+  gender,
   categoryId,
   brandId,
   variants,
@@ -287,6 +294,16 @@ if (existingProduct) {
       'INVALID_BRAND_ID'
     );
   }
+
+  const productGender = (gender || '').trim().toLowerCase();
+
+if (!GENDERS.includes(productGender)) {
+  throw createError(
+    'Gender must be men, women or unisex.',
+    400,
+    'INVALID_GENDER'
+  );
+}
 
 
   // -----------------------------------
@@ -480,6 +497,7 @@ const category = await Category.findOne({
   const product = await Product.create({
     productName: name,
     description: productDescription,
+    gender : productGender,
     categoryId,
     brandId,
   });
@@ -524,6 +542,7 @@ const category = await Category.findOne({
     description: product.description,
     categoryId: product.categoryId,
     brandId: product.brandId,
+    gender : product.gender,
     isActive: product.isActive,
 
     variants: createdVariants.map((variant) => ({
@@ -548,6 +567,7 @@ const updateProduct = async (
   {
     productName,
     description,
+    gender,
     categoryId,
     brandId,
   }
@@ -645,6 +665,18 @@ if (duplicateProduct) {
   }
 
 
+  const productGender =
+  typeof gender === 'string' ? gender.trim().toLowerCase() : '';
+
+if (!GENDERS.includes(productGender)) {
+  throw createError(
+    'Gender must be men, women or unisex.',
+    400,
+    'INVALID_GENDER'
+  );
+}
+
+
   // -----------------------------------
   // 6. Validate category ID
   // -----------------------------------
@@ -679,6 +711,8 @@ if (duplicateProduct) {
   _id: categoryId,
   deletedAt: null,
 });
+
+
 
   if (!category) {
     throw createError(
@@ -741,6 +775,7 @@ if (duplicateProduct) {
   existingProduct.description = productDescription;
   existingProduct.categoryId = categoryId;
   existingProduct.brandId = brandId;
+  existingProduct.gender = productGender;
 
 
   // -----------------------------------
@@ -760,6 +795,7 @@ if (duplicateProduct) {
     description: updatedProduct.description,
     categoryId: updatedProduct.categoryId,
     brandId: updatedProduct.brandId,
+    gender : updatedProduct.gender,
     isActive: updatedProduct.isActive,
     createdAt: updatedProduct.createdAt,
     updatedAt: updatedProduct.updatedAt,

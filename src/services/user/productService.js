@@ -11,21 +11,60 @@ const createError = (message, statusCode = 400, code = 'BAD_REQUEST') => {
   return error;
 };
 
+
 const isObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(value);
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// 1. Get Paginated & Filtered Products
+const resolveIds = async (rawValue, Model, nameField) => {
+  const values = rawValue
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const ids = [];
+  const namePatterns = [];
+
+  for (const value of values) {
+    if (isObjectId(value)) {
+      ids.push(new mongoose.Types.ObjectId(value));
+    } else {
+      namePatterns.push(
+        new RegExp(`^${escapeRegex(value.replace(/-/g, ' '))}$`, 'i')
+      );
+    }
+  }
+  if (namePatterns.length > 0) {
+    const docs = await Model.find({
+      isActive: true,
+      deletedAt: null,
+      [nameField]: { $in: namePatterns },
+    }).select('_id');
+
+    ids.push(...docs.map((doc) => doc._id));
+  }
+
+  return ids;
+};
+
+
+
+
+
+
 const getProducts = async ({
   search,
   category,
   brand,
+  gender,
   minPrice,
   maxPrice,
   sort = 'newest',
   page = 1,
   limit = 12,
 }) => {
+
+
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 12, 1), 50);
 
@@ -34,7 +73,7 @@ const getProducts = async ({
     pagination: { page: pageNum, limit: limitNum, totalResults: 0, totalPages: 0 },
   };
 
-  // Validate price
+ 
   let minPriceNum;
   let maxPriceNum;
 
@@ -45,8 +84,7 @@ const getProducts = async ({
     }
   }
 
-  if (maxPrice !== undefined && maxPrice !== '') {
-    maxPriceNum = Number(maxPrice);
+  if (maxPrice !== undefined && maxPrice !== '') {    maxPriceNum = Number(maxPrice);
     if (!Number.isFinite(maxPriceNum) || maxPriceNum < 0) {
       throw createError('Invalid maximum price.', 400, 'INVALID_MAX_PRICE');
     }
@@ -84,43 +122,33 @@ const getProducts = async ({
   }
 
   // Category filtering (id or name)
-  if (typeof category === 'string' && category.trim()) {
-    const categoryValue = category.trim();
+ if (typeof category === 'string' && category.trim()) {
+  const categoryIds = await resolveIds(category, Category, 'categoryName');
 
-    if (isObjectId(categoryValue)) {
-      // aggregate() does not auto-cast strings, so convert to ObjectId
-      filter.categoryId = new mongoose.Types.ObjectId(categoryValue);
-    } else {
-      const categoryDoc = await Category.findOne({
-        isActive: true,
-        deletedAt: null,
-        categoryName: new RegExp(`^${escapeRegex(categoryValue.replace(/-/g, ' '))}$`, 'i'),
-      }).select('_id');
+  if (categoryIds.length === 0) return emptyResult;
 
-      if (!categoryDoc) return emptyResult;
-
-      filter.categoryId = categoryDoc._id;
-    }
-  }
+  filter.categoryId = { $in: categoryIds };
+}
 
   // Brand filtering (id or name)
-  if (typeof brand === 'string' && brand.trim()) {
-    const brandValue = brand.trim();
+ if (typeof brand === 'string' && brand.trim()) {
+  const brandIds = await resolveIds(brand, Brand, 'brandName');
 
-    if (isObjectId(brandValue)) {
-      filter.brandId = new mongoose.Types.ObjectId(brandValue);
-    } else {
-      const brandDoc = await Brand.findOne({
-        isActive: true,
-        deletedAt: null,
-        brandName: new RegExp(`^${escapeRegex(brandValue.replace(/-/g, ' '))}$`, 'i'),
-      }).select('_id');
+  if (brandIds.length === 0) return emptyResult;
 
-      if (!brandDoc) return emptyResult;
+  filter.brandId = { $in: brandIds };
+}
 
-      filter.brandId = brandDoc._id;
-    }
+  if (gender) {
+  const normalized = gender.trim().toLowerCase();
+
+  if (['men', 'women', 'unisex'].includes(normalized)) {
+    filter.gender =
+      normalized === 'unisex'
+        ? 'unisex'
+        : { $in: [normalized, 'unisex'] };
   }
+}
 
   // Price lives on variants, so we join the cheapest active variant
   // to each product, then filter / sort / paginate in the database.
@@ -204,6 +232,13 @@ const getProducts = async ({
     },
   };
 };
+
+
+
+
+
+
+
 
 // 2. Get Product Details
 const getProduct = async (productId) => {

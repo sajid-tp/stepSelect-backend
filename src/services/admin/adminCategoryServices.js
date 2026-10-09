@@ -65,8 +65,8 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
     throw createError('Category name is required.', 400, 'CATEGORY_NAME_REQUIRED');
   }
 
-    if (name && name.length<6) {
-    throw createError('Category name is required with atleast 6 characters', 400, 'CATEGORY_NAME_REQUIRED');
+    if (name && name.length<3) {
+    throw createError('Category name is required with atleast 3 characters', 400, 'CATEGORY_NAME_REQUIRED');
   }
 
   const existingCategory = await Category.findOne({ categoryName: name, deletedAt:null })

@@ -64,6 +64,7 @@ const createProduct = async (req, res) => {
       description,
       categoryId,
       brandId,
+      gender,
       variants,
     } = req.body;
 
@@ -71,6 +72,7 @@ const createProduct = async (req, res) => {
     const data = await adminProductService.createProduct({
       productName,
       description,
+      gender,
       categoryId,
       brandId,
       variants,
@@ -102,6 +104,7 @@ const updateProduct = async (req, res) => {
       productName,
       description,
       categoryId,
+      gender,
       brandId,
     } = req.body;
 
@@ -112,6 +115,7 @@ const updateProduct = async (req, res) => {
         productName,
         description,
         categoryId,
+        gender,
         brandId,
       }
     );
