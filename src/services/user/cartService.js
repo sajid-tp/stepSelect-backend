@@ -3,10 +3,10 @@ const Product = require('../../models/products');
 const Variant = require('../../models/variants');
 const createError = require('../../utils/createError');
 
-// Max units of the SAME variant + size a user can hold in the cart.
+
 const MAX_QUANTITY_PER_ITEM = 5;
 
-/* ----------------------------- helpers ----------------------------- */
+
 
 const isObjectId = (value) =>
   typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value);
@@ -24,7 +24,7 @@ const parseSize = (size) => {
   return value;
 };
 
-// Accepts 3 or "3". Rejects 0, -1, 1.5, true, [2], null, "abc".
+
 const parseQuantity = (quantity) => {
   const isNumeric =
     typeof quantity === 'number' ||
@@ -47,7 +47,7 @@ const assertWithinLimit = (total) => {
   }
 };
 
-// `total` is the quantity the cart line would have AFTER the change.
+
 const assertQuantityAllowed = (total, stock) => {
   assertWithinLimit(total);
   if (stock < 1) {
@@ -58,7 +58,7 @@ const assertQuantityAllowed = (total, stock) => {
   }
 };
 
-// Same formula as the product card, so the cart price always matches the shop.
+
 const getUnitPrice = (variant) => {
   const price = Number(variant.price) || 0;
   const discount = Math.min(Math.max(Number(variant.discountPercent) || 0, 0), 100);
@@ -77,12 +77,7 @@ const sameLine = (item, variantId, size) =>
 const getOrCreateCart = async (userId) =>
   (await Cart.findOne({ userId })) || new Cart({ userId, items: [] });
 
-/*
-  Runs cart changes of ONE user one after another.
-  Two quick clicks (or two tabs) can no longer read the same cart,
-  both change it, and overwrite each other.
-  (In-process lock: fine for one server instance.)
-*/
+
 const userLocks = new Map();
 
 const withUserLock = (userId, task) => {
@@ -100,7 +95,7 @@ const withUserLock = (userId, task) => {
   return run;
 };
 
-// A variant can be added only if it, its product and the chosen size exist.
+
 const loadPurchasable = async (variantId, size) => {
   const variant = await Variant.findOne({
     _id: variantId,
@@ -134,22 +129,7 @@ const loadPurchasable = async (variantId, size) => {
   return { variant, stock: sizeEntry.stock || 0 };
 };
 
-/*
-  Turns the stored cart (ids + size + quantity) into the response shape,
-  reading current price / name / image / stock from the database.
 
-  Every cart endpoint returns THIS shape as `data`:
-  {
-    id, totalPrice, totalItems, maxQuantityPerItem,
-    items: [{
-      productId, variantId, name, color, size, image,
-      price, quantity, lineTotal,
-      stock, maxQuantity, isAvailable,
-      issue            // null | UNAVAILABLE | OUT_OF_STOCK | INSUFFICIENT_STOCK
-    }]
-  }
-  totalPrice only counts items that are available.
-*/
 const buildCartView = async (cart) => {
   const items = cart?.items || [];
 
@@ -224,15 +204,15 @@ const buildCartView = async (cart) => {
   return view;
 };
 
-/* ----------------------------- services ---------------------------- */
 
-// 1. Get cart
+
+
 const getCart = async (userId) => {
   const cart = await Cart.findOne({ userId });
   return buildCartView(cart);
 };
 
-// 2. Add item (if the same variant + size is already there, quantity is added up)
+
 const addToCart = async (userId, { variantId, size, quantity } = {}) => {
   assertVariantId(variantId);
   const sizeValue = parseSize(size);
@@ -257,12 +237,7 @@ const addToCart = async (userId, { variantId, size, quantity } = {}) => {
   });
 };
 
-/*
-  3. Update quantity (sets the quantity, it does not add to it)
-  Lowering a quantity is always allowed, even when stock dropped below it,
-  so the customer can step down to what is still available.
-  Raising it checks the limit and the current stock.
-*/
+
 const updateCartItem = async (userId, variantId, size, quantity) => {
   assertVariantId(variantId);
   const sizeValue = parseSize(size);
