@@ -43,7 +43,7 @@ const createAndSendOtp = async (user, type, emailSubject) => {
   };
 };
 
-// 1. Signup
+
 const signup = async ({ username, email, password }) => {
   const userExists = await User.findOne({ email });
   if (userExists) {
@@ -66,7 +66,7 @@ const signup = async ({ username, email, password }) => {
   };
 };
 
-// 2. Google OAuth
+
 const googleAuth = async (token) => {
   let ticket;
   try {

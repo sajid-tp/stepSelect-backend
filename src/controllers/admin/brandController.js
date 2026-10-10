@@ -1,16 +1,17 @@
 const adminBrandService = require('../../services/admin/adminBrandServices');
 
 
-// GET /api/admin/brands
+
 const getBrands = async (req, res) => {
   try {
 
-    const { search, page } = req.query;
+    const { search, page, sort } = req.query;
 
     const data = await adminBrandService.getBrands({
       search,
       page,
       limit: 5,
+      sort
     });
 
     return res.status(200).json(data);
@@ -29,7 +30,7 @@ const getBrands = async (req, res) => {
 };
 
 
-// POST /api/admin/brands
+
 const createBrand = async (req, res) => {
   try {
 
@@ -61,7 +62,7 @@ const createBrand = async (req, res) => {
 };
 
 
-// PATCH /api/admin/brands/:brandId
+
 const updateBrand = async (req, res) => {
   try {
 
@@ -98,7 +99,7 @@ const updateBrand = async (req, res) => {
 };
 
 
-// PATCH /api/admin/brands/:brandId/status
+
 const toggleBrandStatus = async (req, res) => {
   try {
 
@@ -123,7 +124,7 @@ const toggleBrandStatus = async (req, res) => {
 };
 
 
-// DELETE /api/admin/brands/:brandId
+
 const deleteBrand = async (req, res) => {
   try {
 

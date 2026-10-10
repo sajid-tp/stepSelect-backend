@@ -98,7 +98,7 @@ const getProducts = async ({
     );
   }
 
-  // Validate sort
+
   const sortOptions = {
     newest: { createdAt: -1, _id: -1 },
     price_asc: { price: 1, _id: 1 },
@@ -113,15 +113,15 @@ const getProducts = async ({
     throw createError('Invalid sort option.', 400, 'INVALID_SORT');
   }
 
-  // Product filter
+
   const filter = { isActive: true, deletedAt: null };
 
-  // Search filtering
+
   if (typeof search === 'string' && search.trim()) {
     filter.productName = { $regex: escapeRegex(search.trim()), $options: 'i' };
   }
 
-  // Category filtering (id or name)
+
  if (typeof category === 'string' && category.trim()) {
   const categoryIds = await resolveIds(category, Category, 'categoryName');
 
@@ -130,7 +130,6 @@ const getProducts = async ({
   filter.categoryId = { $in: categoryIds };
 }
 
-  // Brand filtering (id or name)
  if (typeof brand === 'string' && brand.trim()) {
   const brandIds = await resolveIds(brand, Brand, 'brandName');
 
@@ -150,8 +149,7 @@ const getProducts = async ({
   }
 }
 
-  // Price lives on variants, so we join the cheapest active variant
-  // to each product, then filter / sort / paginate in the database.
+
   const pipeline = [
     { $match: filter },
     {
@@ -173,12 +171,12 @@ const getProducts = async ({
         as: 'variant',
       },
     },
-    // products without an active variant are removed here
+ 
     { $unwind: '$variant' },
     { $addFields: { price: '$variant.price' } },
   ];
 
-  // Price filtering
+
   const priceFilter = {};
   if (minPriceNum !== undefined) priceFilter.$gte = minPriceNum;
   if (maxPriceNum !== undefined) priceFilter.$lte = maxPriceNum;
@@ -187,7 +185,7 @@ const getProducts = async ({
     pipeline.push({ $match: { price: priceFilter } });
   }
 
-  // Sort + paginate + count in one query
+
   pipeline.push(
     { $sort: sortOptions[sortValue] },
     {
@@ -236,11 +234,6 @@ const getProducts = async ({
 
 
 
-
-
-
-
-// 2. Get Product Details
 const getProduct = async (productId) => {
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError('Invalid product id.', 400, 'INVALID_PRODUCT_ID');
@@ -283,7 +276,7 @@ const getProduct = async (productId) => {
       id: product.categoryId?._id,
       categoryName: product.categoryId?.categoryName,
     },
-    // one entry per color, each with its own images and sizes
+ 
     variants: variants.map((variant) => ({
       id: variant._id,
       color: variant.color,
@@ -301,7 +294,7 @@ const getProduct = async (productId) => {
 
 
 
-// Related products: same category, never the current product, in stock only.
+
 const getRelatedProducts = async (productId, limit = 4) => {
   if (!/^[0-9a-fA-F]{24}$/.test(String(productId))) {
     throw createError('Invalid product id.', 400, 'INVALID_PRODUCT_ID');
@@ -330,7 +323,7 @@ const getRelatedProducts = async (productId, limit = 4) => {
     .select('productName brandId')
     .populate('brandId', 'brandName')
     .sort({ createdAt: -1 })
-    .limit(max * 3) // spare ones, in case some have nothing in stock
+    .limit(max * 3) 
     .lean();
 
   const variants = await Variant.find({
@@ -343,7 +336,7 @@ const getRelatedProducts = async (productId, limit = 4) => {
     .sort({ createdAt: 1 })
     .lean();
 
-  // first in-stock variant per product (the same one the shop card's quick add uses)
+
   const firstVariant = new Map();
   variants.forEach((v) => {
     if (!firstVariant.has(String(v.productId))) firstVariant.set(String(v.productId), v);
@@ -373,4 +366,5 @@ const getRelatedProducts = async (productId, limit = 4) => {
 module.exports = {
   getProducts,
   getProduct,
+  getRelatedProducts
 };

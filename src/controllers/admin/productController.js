@@ -8,11 +8,15 @@ const getProducts = async (req, res) => {
     const {
       search,
       page,
+      sort,
+      status,
     } = req.query;
 
     const data = await adminProductService.getProducts({
       search,
       page,
+      sort,
+      status,
       limit: 5,
     });
 
@@ -55,7 +59,7 @@ const getProduct = async (req, res) => {
   }
 };
 
-// POST /api/admin/products
+
 const createProduct = async (req, res) => {
   try {
 

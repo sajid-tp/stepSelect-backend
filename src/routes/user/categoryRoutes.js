@@ -7,7 +7,7 @@ const {
 } = require('../../controllers/user/categoryController');
 const {protect} = require('../../middleware/authMiddleware');
 
-router.get('/', protect,  getCategories);
+router.get('/',  getCategories);
 
 
 module.exports = router;

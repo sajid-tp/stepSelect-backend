@@ -7,7 +7,7 @@ const {
   getProduct,
   getRelatedProducts
 } = require('../../controllers/user/productController');
-const {protect} = require('../../middleware/authMiddleware');
+
 
 // GET /api/products
 router.get('/', getProducts);

@@ -2,7 +2,7 @@ const Brand =
   require('../../models/brands');
 
 
-// GET USER BRANDS
+
 
 const getBrands = async () => {
 

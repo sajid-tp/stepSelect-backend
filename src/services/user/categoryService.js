@@ -2,7 +2,7 @@ const Category =
   require('../../models/categories');
 
 
-// GET USER CATEGORIES
+
 
 const getCategories = async () => {
 

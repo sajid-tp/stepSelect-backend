@@ -12,16 +12,22 @@ const createError = (
   return error;
 };
 
+const SORT_MAP = {
+  newest: { createdAt: -1 },
+  oldest: { createdAt: 1 },
+  name_asc: { categoryName: 1 },
+  name_desc: { categoryName: -1 },
+};
 
-const getCategories = async ({ search, page = 1 }) => {
-  
+
+const getCategories = async ({ search, page = 1, sort }) => {
+
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = 8;
 
   const filter = {
-    deletedAt : null
+    deletedAt: null,
   };
-
 
   const searchText = (search || '').trim();
   if (searchText) {
@@ -29,11 +35,17 @@ const getCategories = async ({ search, page = 1 }) => {
     filter.categoryName = { $regex: escaped, $options: 'i' };
   }
 
+  const sortOption = {
+    ...(SORT_MAP[sort] || SORT_MAP.newest),
+    _id: -1,
+  };
+
   const totalResults = await Category.countDocuments(filter);
   const totalPages = Math.ceil(totalResults / limitNum) || 1;
 
   const categories = await Category.find(filter)
-    .sort({ createdAt: -1 })
+    .sort(sortOption)
+    .collation({ locale: 'en', strength: 2 }) 
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
@@ -258,7 +270,7 @@ const deleteCategory = async (categoryId) => {
     );
   }
 
-  // Already deleted
+
   if (existingCategory.deletedAt !== null) {
     throw createError(
       'Category is already deleted.',
@@ -267,7 +279,7 @@ const deleteCategory = async (categoryId) => {
     );
   }
 
-  // Soft delete
+
   existingCategory.isActive = false;
   existingCategory.deletedAt = new Date();
 

@@ -16,16 +16,28 @@ const createError = (message, statusCode = 400) => {
 
 const otpCreatedAt = (doc) => doc.createdAt || doc._id.getTimestamp();
 
-// 1. Get Profile
+
 const getProfile = async (userId) => {
-  const user = await User.findById(userId).select('username email profileImage phoneNumber');
+  const user = await User.findById(userId).select(
+    'username email profileImage phoneNumber googleId password'
+  );
+
   if (!user) {
     throw createError('User not found', 404);
   }
-  return user;
+
+  return {
+    _id: user._id,
+    username: user.username,
+    email: user.email,
+    profileImage: user.profileImage,
+    phoneNumber: user.phoneNumber,
+    isGoogleUser: Boolean(user.googleId),
+  };
 };
 
-// 2. Update Profile Picture via Cloudinary
+
+
 const updateProfileImage = async (userId, file) => {
   const fileStr = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 
@@ -46,7 +58,7 @@ const updateProfileImage = async (userId, file) => {
   return updatedUser;
 };
 
-// 3. Update Text Details (Name & Phone)
+
 const updateProfile = async (userId, { username, phoneNumber }) => {
   const updatedUser = await User.findByIdAndUpdate(
     userId,
@@ -61,7 +73,7 @@ const updateProfile = async (userId, { username, phoneNumber }) => {
   return updatedUser;
 };
 
-// 4. Request OTP for Email Change
+
 const requestEmailChangeOtp = async (userId, newEmail) => {
   const currentUser = await User.findById(userId);
   if (!currentUser) {
@@ -104,8 +116,23 @@ const requestEmailChangeOtp = async (userId, newEmail) => {
   };
 };
 
-// 5. Verify OTP and Update Email
+
 const verifyAndChangeEmail = async (userId, otpValue) => {
+
+  
+const currentUser = await User.findById(userId);
+
+if (!currentUser) {
+  throw createError('User not found', 404);
+}
+
+if (currentUser.googleId) {
+  throw createError(
+    'Email changes are unavailable for Google-linked accounts',
+    403
+  );
+}
+
   const otpDoc = await OTP.findOne({
     userId,
     otp: Number(otpValue),
@@ -139,7 +166,7 @@ const verifyAndChangeEmail = async (userId, otpValue) => {
   return updatedUser;
 };
 
-// 6. Change Password (Logged-in User)
+
 const changePassword = async (userId, currentPassword, newPassword) => {
   const user = await User.findById(userId);
   if (!user) {
@@ -155,6 +182,15 @@ const changePassword = async (userId, currentPassword, newPassword) => {
   if (isSame) {
     throw createError('New password must be different from current password', 400);
   }
+
+  
+if (user.googleId) {
+  throw createError(
+    'Password changes are unavailable for Google-linked accounts',
+    403
+  );
+}
+
 
   user.password = await bcrypt.hash(newPassword, 10);
   await user.save();

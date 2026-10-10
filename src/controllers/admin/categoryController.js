@@ -1,15 +1,16 @@
 // POST /api/admin/categories
 const adminCategoryService = require('../../services/admin/adminCategoryServices')
 
-// GET /api/admin/categories
+
 const getCategories = async (req, res) => {
   try {
-    const { search, page } = req.query;
+    const { search, page, sort="newest" } = req.query;
 
     const data = await adminCategoryService.getCategories({
       search,
       page,
       limit: 5,
+      sort
     });
 
     return res.status(200).json(data);

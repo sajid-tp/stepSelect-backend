@@ -13,8 +13,17 @@ const createError = (
 };
 
 
-// GET /api/admin/brands
-const getBrands = async ({ search, page = 1 }) => {
+const SORT_MAP = {
+  newest: { createdAt: -1 },
+  oldest: { createdAt: 1 },
+  name_asc: { brandName: 1 },
+  name_desc: { brandName: -1 },
+};
+
+
+
+
+const getBrands = async ({ search, page = 1, sort }) => {
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = 8;
@@ -37,12 +46,19 @@ const getBrands = async ({ search, page = 1 }) => {
     };
   }
 
+
+  const sortOption = {
+    ...(SORT_MAP[sort] || SORT_MAP.newest),
+    _id: -1,
+  };
+
   const totalResults = await Brand.countDocuments(filter);
 
   const totalPages = Math.ceil(totalResults / limitNum) || 1;
 
   const brands = await Brand.find(filter)
-    .sort({ createdAt: -1 })
+    .sort(sortOption)
+    .collation({ locale: 'en', strength: 2 }) // case-insensitive A-Z
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
@@ -66,7 +82,9 @@ const getBrands = async ({ search, page = 1 }) => {
 };
 
 
-// POST /api/admin/brands
+
+
+
 const createBrand = async ({
   brandName,
   description,
@@ -134,7 +152,9 @@ const createBrand = async ({
 };
 
 
-// PATCH /api/admin/brands/:brandId
+
+
+
 const updateBrand = async (
   brandId,
   {
@@ -189,7 +209,6 @@ const updateBrand = async (
   }
 
 
-  // Check duplicate brand name
   const duplicateBrand = await Brand.findOne({
     brandName: name,
     deletedAt : null,
@@ -241,7 +260,8 @@ const updateBrand = async (
 };
 
 
-// PATCH /api/admin/brands/:brandId/status
+
+
 const toggleBrandStatus = async (brandId) => {
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
@@ -262,7 +282,7 @@ const toggleBrandStatus = async (brandId) => {
     );
   }
 
-  // Cannot activate/deactivate a deleted brand
+
   if (existingBrand.deletedAt !== null) {
     throw createError(
       'Cannot change the status of a deleted brand.',
@@ -271,7 +291,6 @@ const toggleBrandStatus = async (brandId) => {
     );
   }
 
-  // Toggle status
   existingBrand.isActive = !existingBrand.isActive;
 
   await existingBrand.save();
@@ -285,7 +304,7 @@ const toggleBrandStatus = async (brandId) => {
 };
 
 
-// DELETE /api/admin/brands/:brandId
+
 const deleteBrand = async (brandId) => {
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
@@ -306,7 +325,7 @@ const deleteBrand = async (brandId) => {
     );
   }
 
-  // Already deleted
+
   if (existingBrand.deletedAt !== null) {
     throw createError(
       'Brand is already deleted.',
@@ -315,7 +334,7 @@ const deleteBrand = async (brandId) => {
     );
   }
 
-  // Soft delete
+  
   existingBrand.isActive = false;
   existingBrand.deletedAt = new Date();
 

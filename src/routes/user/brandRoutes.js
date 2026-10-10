@@ -7,7 +7,7 @@ const {
 } = require('../../controllers/user/brandController');
 
 
-router.get('/',protect, getBrands);
+router.get('/', getBrands);
 
 
 module.exports = router;
