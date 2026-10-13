@@ -3,19 +3,24 @@ const Product = require('../../models/products');
 const Variant = require('../../models/variants');
 const Category = require('../../models/categories');
 const Brand = require('../../models/brands');
-
-const createError = (message, statusCode = 400, code = 'BAD_REQUEST') => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-};
-
+const createError = require('../../utils/createError');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
+const ERROR_CODES = require('../../constants/errorCodes');
 
 const isObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(value);
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// A category/brand is visible to shoppers only if it is active and not deleted.
+const isVisible = (doc) => Boolean(doc && doc.isActive && !doc.deletedAt);
+
+// Ids of every active (non-blocked, non-deleted) document of a model.
+const getActiveIds = (Model) =>
+  Model.find({ isActive: true, deletedAt: null }).distinct('_id');
+
+// Resolves a comma separated list of ids and/or names into ids,
+// keeping ONLY documents that are active and not deleted.
 const resolveIds = async (rawValue, Model, nameField) => {
   const values = rawValue
     .split(',')
@@ -34,23 +39,20 @@ const resolveIds = async (rawValue, Model, nameField) => {
       );
     }
   }
-  if (namePatterns.length > 0) {
-    const docs = await Model.find({
-      isActive: true,
-      deletedAt: null,
-      [nameField]: { $in: namePatterns },
-    }).select('_id');
 
-    ids.push(...docs.map((doc) => doc._id));
-  }
+  const or = [];
+  if (ids.length > 0) or.push({ _id: { $in: ids } });
+  if (namePatterns.length > 0) or.push({ [nameField]: { $in: namePatterns } });
+  if (or.length === 0) return [];
 
-  return ids;
+  const docs = await Model.find({
+    isActive: true,
+    deletedAt: null,
+    $or: or,
+  }).select('_id');
+
+  return docs.map((doc) => doc._id);
 };
-
-
-
-
-
 
 const getProducts = async ({
   search,
@@ -63,8 +65,6 @@ const getProducts = async ({
   page = 1,
   limit = 12,
 }) => {
-
-
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 12, 1), 50);
 
@@ -73,31 +73,30 @@ const getProducts = async ({
     pagination: { page: pageNum, limit: limitNum, totalResults: 0, totalPages: 0 },
   };
 
- 
   let minPriceNum;
   let maxPriceNum;
 
   if (minPrice !== undefined && minPrice !== '') {
     minPriceNum = Number(minPrice);
     if (!Number.isFinite(minPriceNum) || minPriceNum < 0) {
-      throw createError('Invalid minimum price.', 400, 'INVALID_MIN_PRICE');
+      throw createError(MESSAGES.PRODUCT.INVALID_MINIMUM_PRICE, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_MIN_PRICE);
     }
   }
 
-  if (maxPrice !== undefined && maxPrice !== '') {    maxPriceNum = Number(maxPrice);
+  if (maxPrice !== undefined && maxPrice !== '') {
+    maxPriceNum = Number(maxPrice);
     if (!Number.isFinite(maxPriceNum) || maxPriceNum < 0) {
-      throw createError('Invalid maximum price.', 400, 'INVALID_MAX_PRICE');
+      throw createError(MESSAGES.PRODUCT.INVALID_MAXIMUM_PRICE, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_MAX_PRICE);
     }
   }
 
   if (minPriceNum !== undefined && maxPriceNum !== undefined && minPriceNum > maxPriceNum) {
     throw createError(
-      'Minimum price cannot be greater than maximum price.',
-      400,
-      'INVALID_PRICE_RANGE'
+      MESSAGES.PRODUCT.MINIMUM_PRICE_CANNOT_BE_GREATER_THAN_MAXIMUM_PRICE,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PRICE_RANGE
     );
   }
-
 
   const sortOptions = {
     newest: { createdAt: -1, _id: -1 },
@@ -110,45 +109,52 @@ const getProducts = async ({
   const sortValue = sort || 'newest';
 
   if (!Object.hasOwn(sortOptions, sortValue)) {
-    throw createError('Invalid sort option.', 400, 'INVALID_SORT');
+    throw createError(MESSAGES.PRODUCT.INVALID_SORT_OPTION, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_SORT);
   }
-
 
   const filter = { isActive: true, deletedAt: null };
 
+  // Always restrict to products whose category AND brand are active.
+  // If a category/brand query param is given below, it overwrites these
+  // with ids that have already been validated as active.
+  const [activeCategoryIds, activeBrandIds] = await Promise.all([
+    getActiveIds(Category),
+    getActiveIds(Brand),
+  ]);
+
+  filter.categoryId = { $in: activeCategoryIds };
+  filter.brandId = { $in: activeBrandIds };
 
   if (typeof search === 'string' && search.trim()) {
     filter.productName = { $regex: escapeRegex(search.trim()), $options: 'i' };
   }
 
+  if (typeof category === 'string' && category.trim()) {
+    const categoryIds = await resolveIds(category, Category, 'categoryName');
 
- if (typeof category === 'string' && category.trim()) {
-  const categoryIds = await resolveIds(category, Category, 'categoryName');
+    if (categoryIds.length === 0) return emptyResult;
 
-  if (categoryIds.length === 0) return emptyResult;
+    filter.categoryId = { $in: categoryIds };
+  }
 
-  filter.categoryId = { $in: categoryIds };
-}
+  if (typeof brand === 'string' && brand.trim()) {
+    const brandIds = await resolveIds(brand, Brand, 'brandName');
 
- if (typeof brand === 'string' && brand.trim()) {
-  const brandIds = await resolveIds(brand, Brand, 'brandName');
+    if (brandIds.length === 0) return emptyResult;
 
-  if (brandIds.length === 0) return emptyResult;
-
-  filter.brandId = { $in: brandIds };
-}
+    filter.brandId = { $in: brandIds };
+  }
 
   if (gender) {
-  const normalized = gender.trim().toLowerCase();
+    const normalized = gender.trim().toLowerCase();
 
-  if (['men', 'women', 'unisex'].includes(normalized)) {
-    filter.gender =
-      normalized === 'unisex'
-        ? 'unisex'
-        : { $in: [normalized, 'unisex'] };
+    if (['men', 'women', 'unisex'].includes(normalized)) {
+      filter.gender =
+        normalized === 'unisex'
+          ? 'unisex'
+          : { $in: [normalized, 'unisex'] };
+    }
   }
-}
-
 
   const pipeline = [
     { $match: filter },
@@ -171,11 +177,10 @@ const getProducts = async ({
         as: 'variant',
       },
     },
- 
+
     { $unwind: '$variant' },
     { $addFields: { price: '$variant.price' } },
   ];
-
 
   const priceFilter = {};
   if (minPriceNum !== undefined) priceFilter.$gte = minPriceNum;
@@ -184,7 +189,6 @@ const getProducts = async ({
   if (Object.keys(priceFilter).length > 0) {
     pipeline.push({ $match: { price: priceFilter } });
   }
-
 
   pipeline.push(
     { $sort: sortOptions[sortValue] },
@@ -231,12 +235,9 @@ const getProducts = async ({
   };
 };
 
-
-
-
 const getProduct = async (productId) => {
   if (!mongoose.Types.ObjectId.isValid(productId)) {
-    throw createError('Invalid product id.', 400, 'INVALID_PRODUCT_ID');
+    throw createError(MESSAGES.PRODUCT.INVALID_PRODUCT_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_PRODUCT_ID);
   }
 
   const product = await Product.findOne({
@@ -244,12 +245,18 @@ const getProduct = async (productId) => {
     isActive: true,
     deletedAt: null,
   })
-    .populate('brandId', 'brandName')
-    .populate('categoryId', 'categoryName')
+    .populate('brandId', 'brandName isActive deletedAt')
+    .populate('categoryId', 'categoryName isActive deletedAt')
     .lean();
 
   if (!product) {
-    throw createError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
+    throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
+  }
+
+  // Hide products whose category or brand is blocked/deleted.
+  // 404 (not a "blocked" message) so we don't reveal the product exists.
+  if (!isVisible(product.categoryId) || !isVisible(product.brandId)) {
+    throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
   }
 
   const variants = await Variant.find({
@@ -261,7 +268,7 @@ const getProduct = async (productId) => {
     .lean();
 
   if (variants.length === 0) {
-    throw createError('Product is currently unavailable.', 404, 'PRODUCT_UNAVAILABLE');
+    throw createError(MESSAGES.PRODUCT.PRODUCT_IS_CURRENTLY_UNAVAILABLE, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_UNAVAILABLE);
   }
 
   return {
@@ -276,7 +283,7 @@ const getProduct = async (productId) => {
       id: product.categoryId?._id,
       categoryName: product.categoryId?.categoryName,
     },
- 
+
     variants: variants.map((variant) => ({
       id: variant._id,
       color: variant.color,
@@ -291,13 +298,9 @@ const getProduct = async (productId) => {
   };
 };
 
-
-
-
-
 const getRelatedProducts = async (productId, limit = 4) => {
-  if (!/^[0-9a-fA-F]{24}$/.test(String(productId))) {
-    throw createError('Invalid product id.', 400, 'INVALID_PRODUCT_ID');
+  if (!isObjectId(String(productId))) {
+    throw createError(MESSAGES.PRODUCT.INVALID_PRODUCT_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_PRODUCT_ID);
   }
 
   const max = Math.min(Math.max(Number.parseInt(limit, 10) || 4, 1), 12);
@@ -307,15 +310,26 @@ const getRelatedProducts = async (productId, limit = 4) => {
     isActive: true,
     deletedAt: null,
   })
-    .select('categoryId')
+    .select('categoryId brandId')
+    .populate('categoryId', 'isActive deletedAt')
+    .populate('brandId', 'isActive deletedAt')
     .lean();
 
   if (!current) {
-    throw createError('Product not found.', 404, 'PRODUCT_NOT_FOUND');
+    throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
   }
 
+  // If the current product's category/brand is blocked, treat it as not found.
+  if (!isVisible(current.categoryId) || !isVisible(current.brandId)) {
+    throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
+  }
+
+  // Related products must also belong to an active brand.
+  const activeBrandIds = await getActiveIds(Brand);
+
   const products = await Product.find({
-    categoryId: current.categoryId,
+    categoryId: current.categoryId._id,
+    brandId: { $in: activeBrandIds },
     _id: { $ne: current._id },
     isActive: true,
     deletedAt: null,
@@ -323,7 +337,7 @@ const getRelatedProducts = async (productId, limit = 4) => {
     .select('productName brandId')
     .populate('brandId', 'brandName')
     .sort({ createdAt: -1 })
-    .limit(max * 3) 
+    .limit(max * 3)
     .lean();
 
   const variants = await Variant.find({
@@ -335,7 +349,6 @@ const getRelatedProducts = async (productId, limit = 4) => {
     .select('productId price discountPercent images')
     .sort({ createdAt: 1 })
     .lean();
-
 
   const firstVariant = new Map();
   variants.forEach((v) => {
@@ -351,7 +364,8 @@ const getRelatedProducts = async (productId, limit = 4) => {
         return {
           id: String(p._id),
           name: p.productName,
-          brand: p.brandId ? { id: String(p.brandId._id), name: p.brandId.name } : null,
+          // fixed: populated field is brandName, not name
+          brand: p.brandId ? { id: String(p.brandId._id), name: p.brandId.brandName } : null,
           images: (v.images || [])
             .map((image) => (typeof image === 'string' ? image : image?.url))
             .filter(Boolean),
@@ -362,9 +376,8 @@ const getRelatedProducts = async (productId, limit = 4) => {
   };
 };
 
-
 module.exports = {
   getProducts,
   getProduct,
-  getRelatedProducts
+  getRelatedProducts,
 };

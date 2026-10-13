@@ -6,6 +6,8 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 const connectDB = require('./src/config/db');
+const errorHandler = require('./src/middleware/errorHandler');
+const notFoundMiddleware = require('./src/middleware/notFoundMiddleware');
 
 const authRoutes = require('./src/routes/user/authRoutes');
 const adminAuthRoutes = require('./src/routes/admin/authRoutes');
@@ -25,7 +27,7 @@ const adminUploadRoutes =
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.CLIENT_URL,
   credentials: true
 }));
 
@@ -41,6 +43,7 @@ app.use('/api/products',productRoutes);
 app.use('/api/categories',categoryRoutes);
 app.use('/api/brands',brandRoutes);
 app.use('/api/cart',cartRoutes);
+
 //admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/users',adminUserRoutes);
@@ -52,6 +55,10 @@ app.use(
   "/api/admin/uploads",
   adminUploadRoutes
 );
+
+app.use(notFoundMiddleware);
+// Error handler: must stay LAST, after every route
+app.use(errorHandler);
 
 
 const PORT = process.env.PORT || 5000;

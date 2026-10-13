@@ -1,17 +1,15 @@
 const express = require("express");
-
 const router = express.Router();
-
 const {getProfile, updateProfileImage, changeEmail, verifyChangeEmailOtp, updateProfile, changePassword} = require('../../controllers/user/profileController')
 const {protect} = require('../../middleware/authMiddleware');
 const {upload}= require('../../middleware/uploadMiddleware')
 
-router.get('/profile',protect,getProfile);
-router.patch('/profile',protect, updateProfile);
-router.post('/profile-image',protect, upload.single('profileImage'),updateProfileImage);
-router.post('/change-email',protect, changeEmail);
-router.post('/verify-change-email-otp',protect, verifyChangeEmailOtp);
-router.patch('/password',protect,changePassword);
+router.get('/profile',protect("user"),getProfile);
+router.patch('/profile',protect("user"), updateProfile);
+router.post('/profile-image',protect("user"), upload.single('profileImage'),updateProfileImage);
+router.post('/change-email',protect("user"), changeEmail);
+router.post('/verify-change-email-otp',protect("user"), verifyChangeEmailOtp);
+router.patch('/password',protect("user"),changePassword);
 
 module.exports = router;
 

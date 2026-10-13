@@ -1,26 +1,28 @@
+// src/services/user/cartService.js
 const Cart = require('../../models/cart');
 const Product = require('../../models/products');
 const Variant = require('../../models/variants');
 const createError = require('../../utils/createError');
-
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
+const ERROR_CODES = require('../../constants/errorCodes');
 
 const MAX_QUANTITY_PER_ITEM = 5;
-
-
 
 const isObjectId = (value) =>
   typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value);
 
 const assertVariantId = (variantId) => {
   if (!isObjectId(variantId)) {
-    throw createError('Invalid variant id.', 400, 'INVALID_VARIANT_ID');
+    throw createError(MESSAGES.VARIANT.INVALID_VARIANT_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_VARIANT_ID);
   }
 };
 
 const parseSize = (size) => {
   const value =
     typeof size === 'string' || typeof size === 'number' ? String(size).trim() : '';
-  if (!value) throw createError('Size is required.', 400, 'SIZE_REQUIRED');
+
+  if (!value) throw createError(MESSAGES.CART.SIZE_IS_REQUIRED, STATUS.BAD_REQUEST, ERROR_CODES.SIZE_REQUIRED);
   return value;
 };
 
@@ -32,17 +34,18 @@ const parseQuantity = (quantity) => {
   const qty = isNumeric ? Number(quantity) : NaN;
 
   if (!Number.isInteger(qty) || qty < 1) {
-    throw createError('Quantity must be a whole number of at least 1.', 400, 'INVALID_QUANTITY');
+    throw createError(MESSAGES.CART.QUANTITY_MUST_BE_WHOLE_NUMBER_AT_LEAST_1, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_QUANTITY);
   }
   return qty;
 };
 
+
 const assertWithinLimit = (total) => {
   if (total > MAX_QUANTITY_PER_ITEM) {
     throw createError(
-      `You can buy at most ${MAX_QUANTITY_PER_ITEM} of the same item.`,
-      400,
-      'MAX_QUANTITY_EXCEEDED'
+      MESSAGES.CART.MAX_QUANTITY_PER_ITEM_EXCEEDED(MAX_QUANTITY_PER_ITEM),
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.MAX_QUANTITY_EXCEEDED
     );
   }
 };
@@ -50,11 +53,12 @@ const assertWithinLimit = (total) => {
 
 const assertQuantityAllowed = (total, stock) => {
   assertWithinLimit(total);
+
   if (stock < 1) {
-    throw createError('This size is out of stock.', 409, 'OUT_OF_STOCK');
+    throw createError(MESSAGES.CART.THIS_SIZE_IS_OUT_OF_STOCK, STATUS.CONFLICT, ERROR_CODES.OUT_OF_STOCK);
   }
   if (total > stock) {
-    throw createError(`Only ${stock} left in stock for this size.`, 409, 'INSUFFICIENT_STOCK');
+    throw createError(MESSAGES.CART.ONLY_STOCK_LEFT_FOR_SIZE(stock), STATUS.CONFLICT, ERROR_CODES.INSUFFICIENT_STOCK);
   }
 };
 
@@ -65,14 +69,17 @@ const getUnitPrice = (variant) => {
   return Math.round(price - (price * discount) / 100);
 };
 
+
 const getImage = (variant) => {
   const first = variant?.images?.[0];
   if (!first) return null;
   return typeof first === 'string' ? first : first.url || null;
 };
 
+
 const sameLine = (item, variantId, size) =>
   String(item.variantId) === String(variantId) && item.size === size;
+
 
 const getOrCreateCart = async (userId) =>
   (await Cart.findOne({ userId })) || new Cart({ userId, items: [] });
@@ -106,7 +113,7 @@ const loadPurchasable = async (variantId, size) => {
     .lean();
 
   if (!variant) {
-    throw createError('Product variant not found.', 404, 'VARIANT_NOT_FOUND');
+    throw createError(MESSAGES.CART.PRODUCT_VARIANT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.VARIANT_NOT_FOUND);
   }
 
   const product = await Product.findOne({
@@ -118,15 +125,32 @@ const loadPurchasable = async (variantId, size) => {
     .lean();
 
   if (!product) {
-    throw createError('Product is currently unavailable.', 404, 'PRODUCT_UNAVAILABLE');
+    throw createError(MESSAGES.PRODUCT.PRODUCT_IS_CURRENTLY_UNAVAILABLE, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_UNAVAILABLE);
   }
 
   const sizeEntry = (variant.sizes || []).find((s) => String(s.size) === size);
   if (!sizeEntry) {
-    throw createError('Selected size is not available.', 400, 'INVALID_SIZE');
+    throw createError(MESSAGES.CART.SELECTED_SIZE_IS_NOT_AVAILABLE, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_SIZE);
   }
 
   return { variant, stock: sizeEntry.stock || 0 };
+};
+
+
+const getItemIssue = (variant, product, stock, quantity) => {
+  if (
+    !variant ||
+    !product ||
+    !variant.isActive ||
+    variant.deletedAt ||
+    !product.isActive ||
+    product.deletedAt
+  ) {
+    return 'UNAVAILABLE';
+  }
+  if (stock < 1) return 'OUT_OF_STOCK';
+  if (stock < quantity) return 'INSUFFICIENT_STOCK';
+  return null;
 };
 
 
@@ -142,6 +166,7 @@ const buildCartView = async (cart) => {
   };
 
   if (items.length === 0) return view;
+
 
   const variants = await Variant.find({ _id: { $in: items.map((i) => i.variantId) } })
     .select('productId color price discountPercent images sizes isActive deletedAt')
@@ -161,25 +186,12 @@ const buildCartView = async (cart) => {
     const sizeEntry = variant?.sizes?.find((s) => String(s.size) === item.size);
     const stock = sizeEntry?.stock || 0;
 
-    let issue = null;
-    if (
-      !variant ||
-      !product ||
-      !variant.isActive ||
-      variant.deletedAt ||
-      !product.isActive ||
-      product.deletedAt
-    ) {
-      issue = 'UNAVAILABLE';
-    } else if (stock < 1) {
-      issue = 'OUT_OF_STOCK';
-    } else if (stock < item.quantity) {
-      issue = 'INSUFFICIENT_STOCK';
-    }
-
+    const issue = getItemIssue(variant, product, stock, item.quantity);
     const isAvailable = issue === null;
+
     const price = variant ? getUnitPrice(variant) : null;
     const lineTotal = price === null ? 0 : price * item.quantity;
+
 
     if (isAvailable) view.totalPrice += lineTotal;
     view.totalItems += item.quantity;
@@ -206,7 +218,6 @@ const buildCartView = async (cart) => {
 
 
 
-
 const getCart = async (userId) => {
   const cart = await Cart.findOne({ userId });
   return buildCartView(cart);
@@ -223,6 +234,7 @@ const addToCart = async (userId, { variantId, size, quantity } = {}) => {
 
     const cart = await getOrCreateCart(userId);
     const existing = cart.items.find((item) => sameLine(item, variantId, sizeValue));
+
 
     assertQuantityAllowed((existing ? existing.quantity : 0) + qty, stock);
 
@@ -248,7 +260,7 @@ const updateCartItem = async (userId, variantId, size, quantity) => {
     const item = cart?.items.find((i) => sameLine(i, variantId, sizeValue));
 
     if (!item) {
-      throw createError('Item not found in cart.', 404, 'CART_ITEM_NOT_FOUND');
+      throw createError(MESSAGES.CART.ITEM_NOT_FOUND_IN_CART, STATUS.NOT_FOUND, ERROR_CODES.CART_ITEM_NOT_FOUND);
     }
 
     assertWithinLimit(qty);
@@ -264,7 +276,7 @@ const updateCartItem = async (userId, variantId, size, quantity) => {
   });
 };
 
-// 4. Remove one item
+
 const removeCartItem = async (userId, variantId, size) => {
   assertVariantId(variantId);
   const sizeValue = parseSize(size);
@@ -274,7 +286,7 @@ const removeCartItem = async (userId, variantId, size) => {
     const index = cart ? cart.items.findIndex((i) => sameLine(i, variantId, sizeValue)) : -1;
 
     if (index === -1) {
-      throw createError('Item not found in cart.', 404, 'CART_ITEM_NOT_FOUND');
+      throw createError(MESSAGES.CART.ITEM_NOT_FOUND_IN_CART, STATUS.NOT_FOUND, ERROR_CODES.CART_ITEM_NOT_FOUND);
     }
 
     cart.items.splice(index, 1);
@@ -283,7 +295,7 @@ const removeCartItem = async (userId, variantId, size) => {
   });
 };
 
-// 5. Clear the whole cart (the cart document stays, only its items are emptied)
+
 const clearCart = async (userId) =>
   withUserLock(userId, async () => {
     const cart = await Cart.findOneAndUpdate(

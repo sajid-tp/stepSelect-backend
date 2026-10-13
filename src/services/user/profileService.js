@@ -5,14 +5,12 @@ const User = require('../../models/user');
 const OTP = require('../../models/otp');
 const cloudinary = require('../../config/cloudinary');
 const sendEmail = require('../../utils/sendEmail');
-
+const createError = require('../../utils/createError');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
 const OTP_TTL_MS = 5 * 60 * 1000;
 
-const createError = (message, statusCode = 400) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-};
+
 
 const otpCreatedAt = (doc) => doc.createdAt || doc._id.getTimestamp();
 
@@ -23,7 +21,7 @@ const getProfile = async (userId) => {
   );
 
   if (!user) {
-    throw createError('User not found', 404);
+    throw createError(MESSAGES.USER.USER_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
   return {
@@ -52,7 +50,7 @@ const updateProfileImage = async (userId, file) => {
   ).select('-password');
 
   if (!updatedUser) {
-    throw createError('User not found', 404);
+    throw createError(MESSAGES.USER.USER_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
   return updatedUser;
@@ -67,7 +65,7 @@ const updateProfile = async (userId, { username, phoneNumber }) => {
   ).select('username profileImage email phoneNumber');
 
   if (!updatedUser) {
-    throw createError('User not found', 404);
+    throw createError(MESSAGES.USER.USER_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
   return updatedUser;
@@ -77,16 +75,16 @@ const updateProfile = async (userId, { username, phoneNumber }) => {
 const requestEmailChangeOtp = async (userId, newEmail) => {
   const currentUser = await User.findById(userId);
   if (!currentUser) {
-    throw createError('User not found', 404);
+    throw createError(MESSAGES.USER.USER_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
   if (currentUser.email.toLowerCase() === newEmail) {
-    throw createError('New email cannot be the same as current email', 400);
+    throw createError(MESSAGES.USER.NEW_EMAIL_CANNOT_BE_THE_SAME_AS_CURRENT, STATUS.BAD_REQUEST);
   }
 
   const existingUser = await User.findOne({ email: newEmail });
   if (existingUser) {
-    throw createError('Email is already in use by another account', 400);
+    throw createError(MESSAGES.USER.EMAIL_IS_ALREADY_IN_USE_BY_ANOTHER_ACCOUNT, STATUS.BAD_REQUEST);
   }
 
   await OTP.deleteMany({ userId: currentUser._id, type: 'change_email' });
@@ -108,7 +106,7 @@ const requestEmailChangeOtp = async (userId, newEmail) => {
     });
   } catch (mailErr) {
     await OTP.deleteOne({ _id: otpDoc._id });
-    throw createError('Failed to send verification email, please try again', 500);
+    throw createError(MESSAGES.USER.FAILED_TO_SEND_VERIFICATION_EMAIL_PLEASE_TRY_AGAIN, STATUS.SERVER_ERROR);
   }
 
   return {
@@ -123,13 +121,13 @@ const verifyAndChangeEmail = async (userId, otpValue) => {
 const currentUser = await User.findById(userId);
 
 if (!currentUser) {
-  throw createError('User not found', 404);
+  throw createError(MESSAGES.USER.USER_NOT_FOUND, STATUS.NOT_FOUND);
 }
 
 if (currentUser.googleId) {
   throw createError(
-    'Email changes are unavailable for Google-linked accounts',
-    403
+    MESSAGES.USER.EMAIL_CHANGES_ARE_UNAVAILABLE_FOR_GOOGLE_LINKED_ACCOUNTS,
+    STATUS.FORBIDDEN
   );
 }
 
@@ -140,26 +138,35 @@ if (currentUser.googleId) {
   });
 
   if (!otpDoc) {
-    throw createError('Invalid OTP', 400);
+    throw createError(MESSAGES.AUTH.INVALID_OTP, STATUS.BAD_REQUEST);
   }
 
   const otpAge = Date.now() - otpCreatedAt(otpDoc).getTime();
   if (otpAge > OTP_TTL_MS) {
     await OTP.deleteOne({ _id: otpDoc._id });
-    throw createError('OTP expired', 400);
+    throw createError(MESSAGES.AUTH.OTP_EXPIRED, STATUS.BAD_REQUEST);
   }
 
   const emailTaken = await User.findOne({ email: otpDoc.newEmail, _id: { $ne: userId } });
   if (emailTaken) {
     await OTP.deleteOne({ _id: otpDoc._id });
-    throw createError('Email is already in use by another account', 400);
+    throw createError(MESSAGES.USER.EMAIL_IS_ALREADY_IN_USE_BY_ANOTHER_ACCOUNT, STATUS.BAD_REQUEST);
   }
 
-  const updatedUser = await User.findByIdAndUpdate(
-    userId,
-    { email: otpDoc.newEmail },
-    { new: true }
-  ).select('-password');
+  let updatedUser;
+  try {
+    updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { email: otpDoc.newEmail },
+      { new: true }
+    ).select('-password');
+  } catch (err) {
+    // 11000 = unique email index: another account took this email in the meantime
+    if (err.code === 11000) {
+      throw createError(MESSAGES.USER.EMAIL_IS_ALREADY_IN_USE_BY_ANOTHER_ACCOUNT, STATUS.BAD_REQUEST);
+    }
+    throw err;
+  }
 
   await OTP.deleteOne({ _id: otpDoc._id });
 
@@ -170,24 +177,24 @@ if (currentUser.googleId) {
 const changePassword = async (userId, currentPassword, newPassword) => {
   const user = await User.findById(userId);
   if (!user) {
-    throw createError('User does not exist', 400);
+    throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
   }
 
   const isMatch = await bcrypt.compare(currentPassword, user.password);
   if (!isMatch) {
-    throw createError('Current password is incorrect', 401);
+    throw createError(MESSAGES.USER.CURRENT_PASSWORD_IS_INCORRECT, STATUS.UNAUTHORIZED);
   }
 
   const isSame = await bcrypt.compare(newPassword, user.password);
   if (isSame) {
-    throw createError('New password must be different from current password', 400);
+    throw createError(MESSAGES.USER.NEW_PASSWORD_MUST_BE_DIFFERENT_FROM_CURRENT_PASSWORD, STATUS.BAD_REQUEST);
   }
 
   
 if (user.googleId) {
   throw createError(
-    'Password changes are unavailable for Google-linked accounts',
-    403
+    MESSAGES.USER.PASSWORD_CHANGES_ARE_UNAVAILABLE_FOR_GOOGLE_LINKED_ACCOUNTS,
+    STATUS.FORBIDDEN
   );
 }
 

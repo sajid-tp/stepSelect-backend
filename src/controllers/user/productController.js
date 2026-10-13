@@ -1,73 +1,43 @@
 const userProductService = require('../../services/user/productService');
+const STATUS = require('../../constants/statusCodes');
 
 // GET /api/products
 const getProducts = async (req, res) => {
-  try {
-    const { search, category, brand, gender, minPrice, maxPrice, sort, page, limit } = req.query;
+  const { search, category, brand, gender, minPrice, maxPrice, sort, page, limit } = req.query;
 
-    const data = await userProductService.getProducts({
-      search,
-      category,
-      brand,
-      gender,
-      minPrice,
-      maxPrice,
-      sort,
-      page,
-      limit,
-    });
+  const data = await userProductService.getProducts({
+    search,
+    category,
+    brand,
+    gender,
+    minPrice,
+    maxPrice,
+    sort,
+    page,
+    limit,
+  });
 
-    return res.status(200).json({ data });
-  } catch (err) {
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json({ data });
 };
 
 // GET /api/products/:productId
 const getProduct = async (req, res) => {
-  try {
-    const { productId } = req.params;
+  const { productId } = req.params;
 
-    const data = await userProductService.getProduct(productId);
+  const data = await userProductService.getProduct(productId);
 
-    return res.status(200).json({ data });
-  } catch (err) {
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json({ data });
 };
 
 
 
 // GET /api/products/:productId/related?limit=4
 const getRelatedProducts = async (req, res) => {
-  try {
-    const data = await productService.getRelatedProducts(
-      req.params.productId,
-      req.query.limit
-    );
-    return res.status(200).json({ data });
-  } catch (err) {
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.statusCode ? err.message : 'Something went wrong. Please try again.',
-      },
-    });
-  }
+  const data = await userProductService.getRelatedProducts(
+    req.params.productId,
+    req.query.limit
+  );
+  return res.status(STATUS.OK).json({ data });
 };
 
 module.exports = {

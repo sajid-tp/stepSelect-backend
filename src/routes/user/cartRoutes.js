@@ -12,13 +12,11 @@ const {
 
 const router = express.Router();
 
-// Every cart route needs a logged-in user (one line, so none can be forgotten).
-router.use(protect);
 
-router.get('/', protect, getCart);
-router.post('/', protect, addToCart);
-router.patch('/items/:variantId', protect, updateCartItem);
-router.delete('/items/:variantId', protect, removeCartItem);
-router.delete('/', protect, clearCart);
+router.get('/',protect("user"), getCart);
+router.post('/', protect("user"), addToCart);
+router.patch('/items/:variantId', protect("user"), updateCartItem);
+router.delete('/items/:variantId', protect("user"), removeCartItem);
+router.delete('/',protect("user"), clearCart);
 
 module.exports = router;

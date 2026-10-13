@@ -1,29 +1,23 @@
 const uploadService = require("../../services/user/uploadService");
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
 
-const uploadProductImages = async (req, res, next) => {
-  try {
-
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({
-        message: "No images uploaded",
-      });
-    }
-
-    const urls = await uploadService.uploadMultiple(
-      req.files,
-      "stepSelect/products"
-    );
-
-
-    return res.status(200).json({
-      urls,
+const uploadProductImages = async (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(STATUS.BAD_REQUEST).json({
+      message: MESSAGES.UPLOAD.NO_IMAGES_UPLOADED,
     });
-
-  } catch (err) {
-
-
-    next(err);
   }
+
+  const urls = await uploadService.uploadMultiple(
+    req.files,
+    "stepSelect/products"
+  );
+
+
+  return res.status(STATUS.OK).json({
+    urls,
+  });
 };
 
 module.exports = {

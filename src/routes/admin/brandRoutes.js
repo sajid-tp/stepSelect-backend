@@ -10,12 +10,12 @@ const {
   toggleBrandStatus,
 } = require('../../controllers/admin/brandController');
 
-// const { adminProtect } = require('../../middleware/authMiddleware');
+const { protect } = require('../../middleware/authMiddleware');
 
-router.get('/', getBrands);
-router.post('/', createBrand);
-router.patch('/:brandId', updateBrand);
-router.patch('/:brandId/status',toggleBrandStatus);
-router.delete('/:brandId', deleteBrand);
+router.get('/', protect("admin"), getBrands);
+router.post('/', protect("admin"), createBrand);
+router.patch('/:brandId', protect("admin"), updateBrand);
+router.patch('/:brandId/status', protect("admin"), toggleBrandStatus);
+router.delete('/:brandId', protect("admin"), deleteBrand);
 
 module.exports = router;

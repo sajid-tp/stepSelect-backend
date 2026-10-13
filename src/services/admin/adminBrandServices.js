@@ -1,17 +1,9 @@
 const Brand = require('../../models/brands');
 const mongoose = require('mongoose');
-
-const createError = (
-  message,
-  statusCode = 400,
-  code = 'BAD_REQUEST'
-) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-};
-
+const createError = require('../../utils/createError');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
+const ERROR_CODES = require('../../constants/errorCodes');
 
 const SORT_MAP = {
   newest: { createdAt: -1 },
@@ -96,9 +88,9 @@ const createBrand = async ({
 
   if (!name) {
     throw createError(
-      'Brand name is required.',
-      400,
-      'BRAND_NAME_REQUIRED'
+      MESSAGES.BRAND.BRAND_NAME_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_NAME_REQUIRED
     );
   }
 
@@ -113,9 +105,9 @@ const createBrand = async ({
 
   if (existingBrand) {
     throw createError(
-      'A brand with this name already exists.',
-      409,
-      'BRAND_ALREADY_EXISTS'
+      MESSAGES.BRAND.A_BRAND_WITH_THIS_NAME_ALREADY_EXISTS,
+      STATUS.CONFLICT,
+      ERROR_CODES.BRAND_ALREADY_EXISTS
     );
   }
 
@@ -141,9 +133,9 @@ const createBrand = async ({
 
     if (err.code === 11000) {
       throw createError(
-        'A brand with this name already exists.',
-        409,
-        'BRAND_ALREADY_EXISTS'
+        MESSAGES.BRAND.A_BRAND_WITH_THIS_NAME_ALREADY_EXISTS,
+        STATUS.CONFLICT,
+        ERROR_CODES.BRAND_ALREADY_EXISTS
       );
     }
 
@@ -166,9 +158,9 @@ const updateBrand = async (
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
     throw createError(
-      'Invalid brand id.',
-      400,
-      'INVALID_BRAND_ID'
+      MESSAGES.BRAND.INVALID_BRAND_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_BRAND_ID
     );
   }
 
@@ -176,25 +168,25 @@ const updateBrand = async (
 
   if (!existingBrand) {
     throw createError(
-      'Brand not found.',
-      404,
-      'BRAND_NOT_FOUND'
+      MESSAGES.BRAND.BRAND_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.BRAND_NOT_FOUND
     );
   }
 
   if (existingBrand.deletedAt !== null) {
     throw createError(
-      'Cannot edit a deleted brand.',
-      400,
-      'BRAND_DELETED'
+      MESSAGES.BRAND.CANNOT_EDIT_A_DELETED_BRAND,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_DELETED
     );
   }
 
   if (!existingBrand.isActive) {
     throw createError(
-      'Cannot edit an inactive brand.',
-      400,
-      'BRAND_INACTIVE'
+      MESSAGES.BRAND.CANNOT_EDIT_AN_INACTIVE_BRAND,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_INACTIVE
     );
   }
 
@@ -202,9 +194,9 @@ const updateBrand = async (
 
   if (!name) {
     throw createError(
-      'Brand name is required.',
-      400,
-      'BRAND_NAME_REQUIRED'
+      MESSAGES.BRAND.BRAND_NAME_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_NAME_REQUIRED
     );
   }
 
@@ -220,9 +212,9 @@ const updateBrand = async (
 
   if (duplicateBrand) {
     throw createError(
-      'A brand with this name already exists.',
-      409,
-      'BRAND_ALREADY_EXISTS'
+      MESSAGES.BRAND.A_BRAND_WITH_THIS_NAME_ALREADY_EXISTS,
+      STATUS.CONFLICT,
+      ERROR_CODES.BRAND_ALREADY_EXISTS
     );
   }
 
@@ -249,9 +241,9 @@ const updateBrand = async (
     if (err.code === 11000) {
 
       throw createError(
-        'A brand with this name already exists.',
-        409,
-        'BRAND_ALREADY_EXISTS'
+        MESSAGES.BRAND.A_BRAND_WITH_THIS_NAME_ALREADY_EXISTS,
+        STATUS.CONFLICT,
+        ERROR_CODES.BRAND_ALREADY_EXISTS
       );
     }
 
@@ -266,9 +258,9 @@ const toggleBrandStatus = async (brandId) => {
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
     throw createError(
-      'Invalid brand id.',
-      400,
-      'INVALID_BRAND_ID'
+      MESSAGES.BRAND.INVALID_BRAND_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_BRAND_ID
     );
   }
 
@@ -276,18 +268,18 @@ const toggleBrandStatus = async (brandId) => {
 
   if (!existingBrand) {
     throw createError(
-      'Brand not found.',
-      404,
-      'BRAND_NOT_FOUND'
+      MESSAGES.BRAND.BRAND_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.BRAND_NOT_FOUND
     );
   }
 
 
   if (existingBrand.deletedAt !== null) {
     throw createError(
-      'Cannot change the status of a deleted brand.',
-      400,
-      'BRAND_DELETED'
+      MESSAGES.BRAND.CANNOT_CHANGE_THE_STATUS_OF_A_DELETED_BRAND,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_DELETED
     );
   }
 
@@ -309,9 +301,9 @@ const deleteBrand = async (brandId) => {
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
     throw createError(
-      'Invalid brand id.',
-      400,
-      'INVALID_BRAND_ID'
+      MESSAGES.BRAND.INVALID_BRAND_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_BRAND_ID
     );
   }
 
@@ -319,18 +311,18 @@ const deleteBrand = async (brandId) => {
 
   if (!existingBrand) {
     throw createError(
-      'Brand not found.',
-      404,
-      'BRAND_NOT_FOUND'
+      MESSAGES.BRAND.BRAND_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.BRAND_NOT_FOUND
     );
   }
 
 
   if (existingBrand.deletedAt !== null) {
     throw createError(
-      'Brand is already deleted.',
-      400,
-      'BRAND_ALREADY_DELETED'
+      MESSAGES.BRAND.BRAND_IS_ALREADY_DELETED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_ALREADY_DELETED
     );
   }
 

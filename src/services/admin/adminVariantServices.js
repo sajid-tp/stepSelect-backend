@@ -2,19 +2,10 @@ const mongoose = require('mongoose');
 
 const Variant = require('../../models/variants');
 const Product = require('../../models/products');
-
-const createError = (
-  message,
-  statusCode = 400,
-  code = 'BAD_REQUEST'
-) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.code = code;
-
-  return error;
-};
-
+const createError = require('../../utils/createError');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
+const ERROR_CODES = require('../../constants/errorCodes');
 
 const getVariants = async (
   productId,
@@ -27,9 +18,9 @@ const getVariants = async (
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
-      'Invalid product id.',
-      400,
-      'INVALID_PRODUCT_ID'
+      MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PRODUCT_ID
     );
   }
 
@@ -46,9 +37,9 @@ const getVariants = async (
     pageNum < 1
   ) {
     throw createError(
-      'Page must be greater than 0.',
-      400,
-      'INVALID_PAGE'
+      MESSAGES.COMMON.PAGE_MUST_BE_GREATER_THAN_0,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PAGE
     );
   }
 
@@ -57,9 +48,9 @@ const getVariants = async (
     limitNum < 1
   ) {
     throw createError(
-      'Limit must be greater than 0.',
-      400,
-      'INVALID_LIMIT'
+      MESSAGES.COMMON.LIMIT_MUST_BE_GREATER_THAN_0,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_LIMIT
     );
   }
 
@@ -75,9 +66,9 @@ const getVariants = async (
 
   if (!product) {
     throw createError(
-      'Product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.PRODUCT.PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
@@ -155,9 +146,9 @@ const getVariant = async (variantId) => {
 
   if (!mongoose.Types.ObjectId.isValid(variantId)) {
     throw createError(
-      'Invalid variant id.',
-      400,
-      'INVALID_VARIANT_ID'
+      MESSAGES.VARIANT.INVALID_VARIANT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_VARIANT_ID
     );
   }
 
@@ -173,9 +164,9 @@ const getVariant = async (variantId) => {
 
   if (!variant) {
     throw createError(
-      'Variant not found.',
-      404,
-      'VARIANT_NOT_FOUND'
+      MESSAGES.VARIANT.VARIANT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.VARIANT_NOT_FOUND
     );
   }
 
@@ -191,9 +182,9 @@ const getVariant = async (variantId) => {
 
   if (!product) {
     throw createError(
-      'Associated product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
@@ -231,9 +222,9 @@ const addVariant = async (
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
-      'Invalid product id.',
-      400,
-      'INVALID_PRODUCT_ID'
+      MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PRODUCT_ID
     );
   }
 
@@ -249,9 +240,9 @@ const addVariant = async (
 
   if (!product) {
     throw createError(
-      'Product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.PRODUCT.PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
@@ -262,9 +253,9 @@ const addVariant = async (
 
   if (!product.isActive) {
     throw createError(
-      'Cannot add a variant to an inactive product.',
-      400,
-      'PRODUCT_INACTIVE'
+      MESSAGES.VARIANT.CANNOT_ADD_A_VARIANT_TO_AN_INACTIVE_PRODUCT,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_INACTIVE
     );
   }
 
@@ -277,9 +268,9 @@ const addVariant = async (
 
   if (!variantColor) {
     throw createError(
-      'Variant color is required.',
-      400,
-      'VARIANT_COLOR_REQUIRED'
+      MESSAGES.VARIANT.VARIANT_COLOR_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_COLOR_REQUIRED
     );
   }
 
@@ -294,9 +285,9 @@ const addVariant = async (
     price === ''
   ) {
     throw createError(
-      'Variant price is required.',
-      400,
-      'VARIANT_PRICE_REQUIRED'
+      MESSAGES.VARIANT.VARIANT_PRICE_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_PRICE_REQUIRED
     );
   }
 
@@ -305,9 +296,9 @@ const addVariant = async (
     price < 0
   ) {
     throw createError(
-      'Variant price must be a valid non-negative number.',
-      400,
-      'INVALID_VARIANT_PRICE'
+      MESSAGES.VARIANT.VARIANT_PRICE_MUST_BE_NON_NEGATIVE,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_VARIANT_PRICE
     );
   }
 
@@ -321,9 +312,9 @@ const addVariant = async (
     images.length < 3
   ) {
     throw createError(
-      'A variant must have minimum 3 images.',
-      400,
-      'MINIMUM_IMAGES_REQUIRED'
+      MESSAGES.VARIANT.A_VARIANT_MUST_HAVE_MINIMUM_3_IMAGES,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.MINIMUM_IMAGES_REQUIRED
     );
   }
 
@@ -337,9 +328,9 @@ const addVariant = async (
     sizes.length === 0
   ) {
     throw createError(
-      'Variant must have at least one size.',
-      400,
-      'VARIANT_SIZE_REQUIRED'
+      MESSAGES.VARIANT.VARIANT_MUST_HAVE_AT_LEAST_ONE_SIZE,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_SIZE_REQUIRED
     );
   }
 
@@ -354,9 +345,9 @@ const addVariant = async (
 
     if (!size) {
       throw createError(
-        'Size is required for every inventory item.',
-        400,
-        'SIZE_REQUIRED'
+        MESSAGES.VARIANT.SIZE_IS_REQUIRED_FOR_EVERY_INVENTORY_ITEM,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.SIZE_REQUIRED
       );
     }
 
@@ -366,9 +357,9 @@ const addVariant = async (
       sizeItem.stock === null
     ) {
       throw createError(
-        `Stock is required for size ${size}.`,
-        400,
-        'STOCK_REQUIRED'
+        MESSAGES.VARIANT.STOCK_IS_REQUIRED_FOR_SIZE(size),
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.STOCK_REQUIRED
       );
     }
 
@@ -378,9 +369,9 @@ const addVariant = async (
       sizeItem.stock < 0
     ) {
       throw createError(
-        `Stock must be a non-negative number for size ${size}.`,
-        400,
-        'INVALID_STOCK'
+        MESSAGES.VARIANT.STOCK_MUST_BE_NON_NEGATIVE_FOR_SIZE(size),
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.INVALID_STOCK
       );
     }
   }
@@ -437,9 +428,9 @@ const updateVariant = async (
 
   if (!mongoose.Types.ObjectId.isValid(variantId)) {
     throw createError(
-      'Invalid variant id.',
-      400,
-      'INVALID_VARIANT_ID'
+      MESSAGES.VARIANT.INVALID_VARIANT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_VARIANT_ID
     );
   }
 
@@ -455,9 +446,9 @@ const updateVariant = async (
 
   if (!existingVariant) {
     throw createError(
-      'Variant not found.',
-      404,
-      'VARIANT_NOT_FOUND'
+      MESSAGES.VARIANT.VARIANT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.VARIANT_NOT_FOUND
     );
   }
 
@@ -468,9 +459,9 @@ const updateVariant = async (
 
   if (!existingVariant.isActive) {
     throw createError(
-      'Cannot edit an inactive variant.',
-      400,
-      'VARIANT_INACTIVE'
+      MESSAGES.VARIANT.CANNOT_EDIT_AN_INACTIVE_VARIANT,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_INACTIVE
     );
   }
 
@@ -483,9 +474,9 @@ const updateVariant = async (
 
   if (!variantColor) {
     throw createError(
-      'Variant color is required.',
-      400,
-      'VARIANT_COLOR_REQUIRED'
+      MESSAGES.VARIANT.VARIANT_COLOR_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_COLOR_REQUIRED
     );
   }
 
@@ -500,9 +491,9 @@ const updateVariant = async (
     price === ''
   ) {
     throw createError(
-      'Variant price is required.',
-      400,
-      'VARIANT_PRICE_REQUIRED'
+      MESSAGES.VARIANT.VARIANT_PRICE_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_PRICE_REQUIRED
     );
   }
 
@@ -511,9 +502,9 @@ const updateVariant = async (
     price < 0
   ) {
     throw createError(
-      'Variant price must be a valid non-negative number.',
-      400,
-      'INVALID_VARIANT_PRICE'
+      MESSAGES.VARIANT.VARIANT_PRICE_MUST_BE_NON_NEGATIVE,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_VARIANT_PRICE
     );
   }
 
@@ -527,9 +518,9 @@ const updateVariant = async (
     images.length < 3
   ) {
     throw createError(
-      'A variant must have minimum 3 images.',
-      400,
-      'MINIMUM_IMAGES_REQUIRED'
+      MESSAGES.VARIANT.A_VARIANT_MUST_HAVE_MINIMUM_3_IMAGES,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.MINIMUM_IMAGES_REQUIRED
     );
   }
 
@@ -543,9 +534,9 @@ const updateVariant = async (
     sizes.length === 0
   ) {
     throw createError(
-      'A variant must have at least one size.',
-      400,
-      'VARIANT_SIZE_REQUIRED'
+      MESSAGES.VARIANT.A_VARIANT_MUST_HAVE_AT_LEAST_ONE_SIZE,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_SIZE_REQUIRED
     );
   }
 
@@ -560,9 +551,9 @@ const updateVariant = async (
 
     if (!size) {
       throw createError(
-        'Size is required for every inventory item.',
-        400,
-        'SIZE_REQUIRED'
+        MESSAGES.VARIANT.SIZE_IS_REQUIRED_FOR_EVERY_INVENTORY_ITEM,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.SIZE_REQUIRED
       );
     }
 
@@ -572,9 +563,9 @@ const updateVariant = async (
       sizeItem.stock === null
     ) {
       throw createError(
-        `Stock is required for size ${size}.`,
-        400,
-        'STOCK_REQUIRED'
+        MESSAGES.VARIANT.STOCK_IS_REQUIRED_FOR_SIZE(size),
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.STOCK_REQUIRED
       );
     }
 
@@ -584,9 +575,9 @@ const updateVariant = async (
       sizeItem.stock < 0
     ) {
       throw createError(
-        `Stock must be a non-negative number for size ${size}.`,
-        400,
-        'INVALID_STOCK'
+        MESSAGES.VARIANT.STOCK_MUST_BE_NON_NEGATIVE_FOR_SIZE(size),
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.INVALID_STOCK
       );
     }
   }
@@ -603,9 +594,9 @@ const product = await Product.findOne({
 
   if (!product) {
     throw createError(
-      'Associated product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
@@ -616,9 +607,9 @@ const product = await Product.findOne({
 
   if (!product.isActive) {
     throw createError(
-      'Cannot edit a variant of an inactive product.',
-      400,
-      'PRODUCT_INACTIVE'
+      MESSAGES.VARIANT.CANNOT_EDIT_A_VARIANT_OF_AN_INACTIVE_PRODUCT,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_INACTIVE
     );
   }
 
@@ -669,9 +660,9 @@ const deleteVariant = async (variantId) => {
 
   if (!mongoose.Types.ObjectId.isValid(variantId)) {
     throw createError(
-      'Invalid variant id.',
-      400,
-      'INVALID_VARIANT_ID'
+      MESSAGES.VARIANT.INVALID_VARIANT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_VARIANT_ID
     );
   }
 
@@ -687,9 +678,9 @@ const deleteVariant = async (variantId) => {
 
   if (!existingVariant) {
     throw createError(
-      'Variant not found.',
-      404,
-      'VARIANT_NOT_FOUND'
+      MESSAGES.VARIANT.VARIANT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.VARIANT_NOT_FOUND
     );
   }
 
@@ -708,7 +699,7 @@ const deleteVariant = async (variantId) => {
   // -----------------------------------
 
   return {
-    message: 'Variant deleted successfully.',
+    message: MESSAGES.VARIANT.VARIANT_DELETED_SUCCESSFULLY,
   };
 };
 
@@ -720,9 +711,9 @@ const toggleVariantStatus = async (variantId) => {
 
   if (!mongoose.Types.ObjectId.isValid(variantId)) {
     throw createError(
-      'Invalid variant id.',
-      400,
-      'INVALID_VARIANT_ID'
+      MESSAGES.VARIANT.INVALID_VARIANT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_VARIANT_ID
     );
   }
 
@@ -738,9 +729,9 @@ const toggleVariantStatus = async (variantId) => {
 
   if (!existingVariant) {
     throw createError(
-      'Variant not found.',
-      404,
-      'VARIANT_NOT_FOUND'
+      MESSAGES.VARIANT.VARIANT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.VARIANT_NOT_FOUND
     );
   }
 
@@ -756,9 +747,9 @@ const toggleVariantStatus = async (variantId) => {
 
   if (!product) {
     throw createError(
-      'Associated product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
@@ -769,9 +760,9 @@ const toggleVariantStatus = async (variantId) => {
 
   if (!product.isActive) {
     throw createError(
-      'Cannot change status of a variant belonging to an inactive product.',
-      400,
-      'PRODUCT_INACTIVE'
+      MESSAGES.VARIANT.CANNOT_CHANGE_STATUS_OF_VARIANT_OF_INACTIVE_PRODUCT,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_INACTIVE
     );
   }
 
@@ -790,9 +781,9 @@ const toggleVariantStatus = async (variantId) => {
   // -----------------------------------
 
   return {
-    message: `Variant ${
-      existingVariant.isActive ? 'activated' : 'deactivated'
-    } successfully.`,
+    message: existingVariant.isActive
+      ? MESSAGES.VARIANT.VARIANT_ACTIVATED_SUCCESSFULLY
+      : MESSAGES.VARIANT.VARIANT_DEACTIVATED_SUCCESSFULLY,
     isActive: existingVariant.isActive,
   };
 };

@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const {adminProtect} = require('../../middleware/authMiddleware')
+const {protect} = require('../../middleware/authMiddleware')
 
 const { getUsers, toggleUserStatus } = require('../../controllers/admin/userController');
 
-router.get('/',adminProtect, getUsers);
-router.patch('/:userId/status', adminProtect, toggleUserStatus);
+router.get('/',protect("admin"), getUsers);
+router.patch('/:userId/status', protect("admin"), toggleUserStatus);
 
 module.exports = router;

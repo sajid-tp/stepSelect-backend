@@ -1,11 +1,8 @@
 // src/services/addressService.js
 const Address = require('../../models/address');
-
-const createError = (message, statusCode = 400) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-};
+const createError = require('../../utils/createError');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
 
 // 1. Get all addresses for a user
 const getAddresses = async (userId) => {
@@ -54,7 +51,7 @@ const createAddress = async (userId, addressData) => {
 const updateAddress = async (userId, addressId, updateData) => {
   const address = await Address.findOne({ _id: addressId, user: userId });
   if (!address) {
-    throw createError('Address Not Found', 404);
+    throw createError(MESSAGES.ADDRESS.ADDRESS_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
   // If making this one default, unset all others
@@ -81,7 +78,7 @@ const updateAddress = async (userId, addressId, updateData) => {
 const deleteAddress = async (userId, addressId) => {
   const address = await Address.findOneAndDelete({ _id: addressId, user: userId });
   if (!address) {
-    throw createError('Address Not Found', 404);
+    throw createError(MESSAGES.ADDRESS.ADDRESS_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
   // If deleted address was default, set the latest remaining address to default

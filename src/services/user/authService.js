@@ -4,6 +4,7 @@ const OTP = require('../../models/otp');
 const bcrypt = require('bcryptjs');
 const { OAuth2Client } = require('google-auth-library');
 const sendEmail = require('../../utils/sendEmail');
+const createError = require('../../utils/createError');
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -11,14 +12,10 @@ const {
   verifyRefreshToken,
   verifyResetToken,
 } = require('../../utils/jwt');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-const createError = (message, statusCode = 400) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-};
 
 // Internal Helper: OTP creation & dispatch
 const createAndSendOtp = async (user, type, emailSubject) => {
@@ -35,7 +32,7 @@ const createAndSendOtp = async (user, type, emailSubject) => {
     });
   } catch (mailErr) {
     await OTP.deleteOne({ _id: otpDoc._id });
-    throw createError("Failed to send OTP, please try again", 500);
+    throw createError(MESSAGES.AUTH.FAILED_TO_SEND_OTP_PLEASE_TRY_AGAIN, STATUS.SERVER_ERROR);
   }
 
   return {
@@ -48,7 +45,7 @@ const signup = async ({ username, email, password }) => {
   const userExists = await User.findOne({ email });
   if (userExists) {
     if (userExists.isVerified) {
-      throw createError("User already exists", 400);
+      throw createError(MESSAGES.AUTH.USER_ALREADY_EXISTS, STATUS.BAD_REQUEST);
     }
     await User.deleteOne({ email });
   }
@@ -75,7 +72,7 @@ const googleAuth = async (token) => {
       audience: process.env.GOOGLE_CLIENT_ID,
     });
   } catch (err) {
-    throw createError("Invalid Google token", 401);
+    throw createError(MESSAGES.AUTH.INVALID_GOOGLE_TOKEN, STATUS.UNAUTHORIZED);
   }
 
   const { sub: googleId, email, name, picture } = ticket.getPayload();
@@ -100,7 +97,7 @@ const googleAuth = async (token) => {
   }
 
   if (user.isBlocked) {
-    throw createError("Your account has been blocked", 403);
+    throw createError(MESSAGES.AUTH.YOUR_ACCOUNT_HAS_BEEN_BLOCKED, STATUS.FORBIDDEN);
   }
 
   const accessToken = generateAccessToken(user._id);
@@ -122,16 +119,16 @@ const googleAuth = async (token) => {
 const login = async ({ email, password }) => {
   const user = await User.findOne({ email });
   if (!user || !user.isVerified) {
-    throw createError("Not registered. Register first to login", 400);
+    throw createError(MESSAGES.AUTH.NOT_REGISTERED_REGISTER_FIRST_TO_LOGIN, STATUS.BAD_REQUEST);
   }
 
   if (user.isBlocked) {
-    throw createError("User is blocked", 401);
+    throw createError(MESSAGES.AUTH.USER_IS_BLOCKED, STATUS.UNAUTHORIZED);
   }
 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
-    throw createError("Invalid credentials", 401);
+    throw createError(MESSAGES.AUTH.INVALID_CREDENTIALS, STATUS.UNAUTHORIZED);
   }
 
   const accessToken = generateAccessToken(user._id);
@@ -151,7 +148,7 @@ const login = async ({ email, password }) => {
 // 4. Send Signup OTP
 const sendOtp = async (email) => {
   const user = await User.findOne({ email });
-  if (!user) throw createError("User does not exist", 400);
+  if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
 
   return await createAndSendOtp(user, "signup", "Your Signup OTP");
 };
@@ -159,13 +156,13 @@ const sendOtp = async (email) => {
 // 5. Verify Signup OTP
 const verifyOtp = async ({ email, otp }) => {
   const user = await User.findOne({ email });
-  if (!user) throw createError("User does not exist", 400);
+  if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
 
   const otpExists = await OTP.findOne({ userId: user._id, otp, type: "signup" });
-  if (!otpExists) throw createError("OTP wrong", 400);
+  if (!otpExists) throw createError(MESSAGES.AUTH.OTP_WRONG, STATUS.BAD_REQUEST);
 
   if (Date.now() - otpExists.createdAt.getTime() > 5 * 60 * 1000) {
-    throw createError("OTP expired", 400);
+    throw createError(MESSAGES.AUTH.OTP_EXPIRED, STATUS.BAD_REQUEST);
   }
 
   user.isVerified = true;
@@ -189,7 +186,7 @@ const verifyOtp = async ({ email, otp }) => {
 // 6. Forgot Password (Send Reset OTP)
 const forgotPassword = async (email) => {
   const user = await User.findOne({ email });
-  if (!user) throw createError("User does not exist", 400);
+  if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
 
   return await createAndSendOtp(user, "reset", "Your Password Reset OTP");
 };
@@ -197,13 +194,13 @@ const forgotPassword = async (email) => {
 // 7. Verify Reset OTP -> Issues resetToken
 const verifyResetOtp = async ({ email, otp }) => {
   const user = await User.findOne({ email });
-  if (!user) throw createError("User does not exist", 400);
+  if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
 
   const otpExists = await OTP.findOne({ userId: user._id, otp, type: "reset" });
-  if (!otpExists) throw createError("Invalid OTP", 400);
+  if (!otpExists) throw createError(MESSAGES.AUTH.INVALID_OTP, STATUS.BAD_REQUEST);
 
   if (Date.now() - otpExists.createdAt.getTime() > 5 * 60 * 1000) {
-    throw createError("OTP expired", 400);
+    throw createError(MESSAGES.AUTH.OTP_EXPIRED, STATUS.BAD_REQUEST);
   }
 
   await OTP.deleteOne({ _id: otpExists._id });
@@ -218,11 +215,11 @@ const resetPassword = async ({ resetToken, newPassword }) => {
   try {
     payload = verifyResetToken(resetToken);
   } catch (err) {
-    throw createError(err.message || "Reset link expired or invalid, please try again", 400);
+    throw createError(err.message || MESSAGES.AUTH.RESET_LINK_EXPIRED_OR_INVALID_PLEASE_TRY_AGAIN, STATUS.BAD_REQUEST);
   }
 
   const user = await User.findById(payload.id);
-  if (!user) throw createError("User does not exist", 400);
+  if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
 
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   user.password = hashedPassword;
@@ -234,10 +231,10 @@ const resetPassword = async ({ resetToken, newPassword }) => {
 // 9. Resend OTP
 const resendOtp = async ({ email, type }) => {
   const user = await User.findOne({ email });
-  if (!user) throw createError("User does not exist", 400);
+  if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
 
   if (type === "signup" && user.isVerified) {
-    throw createError("User is already verified", 400);
+    throw createError(MESSAGES.AUTH.USER_IS_ALREADY_VERIFIED, STATUS.BAD_REQUEST);
   }
 
   const subject = type === "signup" ? "Your Signup OTP" : "Your Password Reset OTP";
@@ -247,19 +244,19 @@ const resendOtp = async ({ email, type }) => {
 // 10. Refresh Access Token (Rotation on 401)
 const refreshAccessToken = async (incomingRefreshToken) => {
   if (!incomingRefreshToken) {
-    throw createError("No refresh token provided", 401);
+    throw createError(MESSAGES.AUTH.NO_REFRESH_TOKEN_PROVIDED, STATUS.UNAUTHORIZED);
   }
 
   let payload;
   try {
     payload = verifyRefreshToken(incomingRefreshToken);
   } catch (err) {
-    throw createError("Refresh token expired or invalid, please login again", 401);
+    throw createError(MESSAGES.AUTH.REFRESH_TOKEN_EXPIRED_OR_INVALID_PLEASE_LOGIN_AGAIN, STATUS.UNAUTHORIZED);
   }
 
   const user = await User.findById(payload.id);
   if (!user || user.isBlocked) {
-    throw createError("User not found or blocked", 401);
+    throw createError(MESSAGES.AUTH.USER_NOT_FOUND_OR_BLOCKED, STATUS.UNAUTHORIZED);
   }
 
   const newAccessToken = generateAccessToken(user._id);

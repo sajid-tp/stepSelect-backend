@@ -4,18 +4,10 @@ const Category = require('../../models/categories');
 const Brand = require('../../models/brands');
 
 const mongoose = require('mongoose');
-
-
-const createError = (
-  message,
-  statusCode = 400,
-  code = 'BAD_REQUEST'
-) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-};
+const createError = require('../../utils/createError');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
+const ERROR_CODES = require('../../constants/errorCodes');
 
 const GENDERS = ['men', 'women', 'unisex'];
 
@@ -40,17 +32,17 @@ const getProducts = async ({
 
   if (pageNum < 1) {
     throw createError(
-      'Page must be greater than 0.',
-      400,
-      'INVALID_PAGE'
+      MESSAGES.COMMON.PAGE_MUST_BE_GREATER_THAN_0,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PAGE
     );
   }
 
   if (limitNum < 1) {
     throw createError(
-      'Limit must be greater than 0.',
-      400,
-      'INVALID_LIMIT'
+      MESSAGES.COMMON.LIMIT_MUST_BE_GREATER_THAN_0,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_LIMIT
     );
   }
 
@@ -174,9 +166,9 @@ const getProduct = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
-      'Invalid product id.',
-      400,
-      'INVALID_PRODUCT_ID'
+      MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PRODUCT_ID
     );
   }
 
@@ -189,9 +181,9 @@ const getProduct = async (productId) => {
 
   if (!product) {
     throw createError(
-      'Product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.PRODUCT.PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
@@ -253,9 +245,9 @@ const createProduct = async ({
 
   if (!name) {
     throw createError(
-      'Product name is required.',
-      400,
-      'PRODUCT_NAME_REQUIRED'
+      MESSAGES.PRODUCT.PRODUCT_NAME_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_NAME_REQUIRED
     );
   }
 
@@ -269,9 +261,9 @@ const createProduct = async ({
 
   if (existingProduct) {
     throw createError(
-      'A product with this name already exists.',
-      409,
-      'PRODUCT_ALREADY_EXISTS'
+      MESSAGES.PRODUCT.A_PRODUCT_WITH_THIS_NAME_ALREADY_EXISTS,
+      STATUS.CONFLICT,
+      ERROR_CODES.PRODUCT_ALREADY_EXISTS
     );
   }
 
@@ -279,25 +271,25 @@ const createProduct = async ({
 
   if (!productDescription) {
     throw createError(
-      'Product description is required.',
-      400,
-      'PRODUCT_DESCRIPTION_REQUIRED'
+      MESSAGES.PRODUCT.PRODUCT_DESCRIPTION_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_DESCRIPTION_REQUIRED
     );
   }
 
   if (!mongoose.Types.ObjectId.isValid(categoryId)) {
     throw createError(
-      'Invalid category id.',
-      400,
-      'INVALID_CATEGORY_ID'
+      MESSAGES.CATEGORY.INVALID_CATEGORY_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_CATEGORY_ID
     );
   }
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
     throw createError(
-      'Invalid brand id.',
-      400,
-      'INVALID_BRAND_ID'
+      MESSAGES.BRAND.INVALID_BRAND_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_BRAND_ID
     );
   }
 
@@ -305,17 +297,17 @@ const createProduct = async ({
 
   if (!GENDERS.includes(productGender)) {
     throw createError(
-      'Gender must be men, women or unisex.',
-      400,
-      'INVALID_GENDER'
+      MESSAGES.PRODUCT.GENDER_MUST_BE_MEN_WOMEN_OR_UNISEX,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_GENDER
     );
   }
 
   if (!Array.isArray(variants) || variants.length === 0) {
     throw createError(
-      'At least one variant is required.',
-      400,
-      'VARIANT_REQUIRED'
+      MESSAGES.PRODUCT.AT_LEAST_ONE_VARIANT_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.VARIANT_REQUIRED
     );
   }
 
@@ -326,17 +318,17 @@ const createProduct = async ({
 
   if (!category) {
     throw createError(
-      'Category not found.',
-      404,
-      'CATEGORY_NOT_FOUND'
+      MESSAGES.CATEGORY.CATEGORY_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.CATEGORY_NOT_FOUND
     );
   }
 
   if (!category.isActive) {
     throw createError(
-      'Cannot create product under an inactive category.',
-      400,
-      'CATEGORY_INACTIVE'
+      MESSAGES.PRODUCT.CANNOT_CREATE_PRODUCT_UNDER_AN_INACTIVE_CATEGORY,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.CATEGORY_INACTIVE
     );
   }
 
@@ -347,17 +339,17 @@ const createProduct = async ({
 
   if (!brand) {
     throw createError(
-      'Brand not found.',
-      404,
-      'BRAND_NOT_FOUND'
+      MESSAGES.BRAND.BRAND_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.BRAND_NOT_FOUND
     );
   }
 
   if (!brand.isActive) {
     throw createError(
-      'Cannot create product with an inactive brand.',
-      400,
-      'BRAND_INACTIVE'
+      MESSAGES.PRODUCT.CANNOT_CREATE_PRODUCT_WITH_AN_INACTIVE_BRAND,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_INACTIVE
     );
   }
 
@@ -368,9 +360,9 @@ const createProduct = async ({
 
     if (!color) {
       throw createError(
-        'Variant color is required.',
-        400,
-        'VARIANT_COLOR_REQUIRED'
+        MESSAGES.VARIANT.VARIANT_COLOR_IS_REQUIRED,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.VARIANT_COLOR_REQUIRED
       );
     }
 
@@ -380,9 +372,9 @@ const createProduct = async ({
       variant.price === ''
     ) {
       throw createError(
-        'Variant price is required.',
-        400,
-        'VARIANT_PRICE_REQUIRED'
+        MESSAGES.VARIANT.VARIANT_PRICE_IS_REQUIRED,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.VARIANT_PRICE_REQUIRED
       );
     }
 
@@ -391,9 +383,9 @@ const createProduct = async ({
       variant.price < 0
     ) {
       throw createError(
-        'Variant price must be a valid non-negative number.',
-        400,
-        'INVALID_VARIANT_PRICE'
+        MESSAGES.VARIANT.VARIANT_PRICE_MUST_BE_NON_NEGATIVE,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.INVALID_VARIANT_PRICE
       );
     }
 
@@ -402,9 +394,9 @@ const createProduct = async ({
       variant.images.length < 3
     ) {
       throw createError(
-        'A variant must have minimum 3 images.',
-        400,
-        'MINIMUM_IMAGES_REQUIRED'
+        MESSAGES.VARIANT.A_VARIANT_MUST_HAVE_MINIMUM_3_IMAGES,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.MINIMUM_IMAGES_REQUIRED
       );
     }
 
@@ -413,9 +405,9 @@ const createProduct = async ({
       variant.sizes.length === 0
     ) {
       throw createError(
-        'A variant must have at least one size.',
-        400,
-        'VARIANT_SIZE_REQUIRED'
+        MESSAGES.VARIANT.A_VARIANT_MUST_HAVE_AT_LEAST_ONE_SIZE,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.VARIANT_SIZE_REQUIRED
       );
     }
 
@@ -425,9 +417,9 @@ const createProduct = async ({
 
       if (!size) {
         throw createError(
-          'Size is required for every inventory item.',
-          400,
-          'SIZE_REQUIRED'
+          MESSAGES.VARIANT.SIZE_IS_REQUIRED_FOR_EVERY_INVENTORY_ITEM,
+          STATUS.BAD_REQUEST,
+          ERROR_CODES.SIZE_REQUIRED
         );
       }
 
@@ -436,9 +428,9 @@ const createProduct = async ({
         sizeItem.stock === null
       ) {
         throw createError(
-          `Stock is required for size ${size}.`,
-          400,
-          'STOCK_REQUIRED'
+          MESSAGES.VARIANT.STOCK_IS_REQUIRED_FOR_SIZE(size),
+          STATUS.BAD_REQUEST,
+          ERROR_CODES.STOCK_REQUIRED
         );
       }
 
@@ -447,9 +439,9 @@ const createProduct = async ({
         sizeItem.stock < 0
       ) {
         throw createError(
-          `Stock must be a non-negative number for size ${size}.`,
-          400,
-          'INVALID_STOCK'
+          MESSAGES.VARIANT.STOCK_MUST_BE_NON_NEGATIVE_FOR_SIZE(size),
+          STATUS.BAD_REQUEST,
+          ERROR_CODES.INVALID_STOCK
         );
       }
     }
@@ -521,9 +513,9 @@ const updateProduct = async (
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
-      'Invalid product id.',
-      400,
-      'INVALID_PRODUCT_ID'
+      MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PRODUCT_ID
     );
   }
 
@@ -534,17 +526,17 @@ const updateProduct = async (
 
   if (!existingProduct) {
     throw createError(
-      'Product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.PRODUCT.PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
   if (!existingProduct.isActive) {
     throw createError(
-      'Cannot edit an inactive product.',
-      400,
-      'PRODUCT_INACTIVE'
+      MESSAGES.PRODUCT.CANNOT_EDIT_AN_INACTIVE_PRODUCT,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_INACTIVE
     );
   }
 
@@ -552,9 +544,9 @@ const updateProduct = async (
 
   if (!name) {
     throw createError(
-      'Product name is required.',
-      400,
-      'PRODUCT_NAME_REQUIRED'
+      MESSAGES.PRODUCT.PRODUCT_NAME_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_NAME_REQUIRED
     );
   }
 
@@ -569,9 +561,9 @@ const updateProduct = async (
 
   if (duplicateProduct) {
     throw createError(
-      'A product with this name already exists.',
-      409,
-      'PRODUCT_ALREADY_EXISTS'
+      MESSAGES.PRODUCT.A_PRODUCT_WITH_THIS_NAME_ALREADY_EXISTS,
+      STATUS.CONFLICT,
+      ERROR_CODES.PRODUCT_ALREADY_EXISTS
     );
   }
 
@@ -580,9 +572,9 @@ const updateProduct = async (
 
   if (!productDescription) {
     throw createError(
-      'Product description is required.',
-      400,
-      'PRODUCT_DESCRIPTION_REQUIRED'
+      MESSAGES.PRODUCT.PRODUCT_DESCRIPTION_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.PRODUCT_DESCRIPTION_REQUIRED
     );
   }
 
@@ -592,25 +584,25 @@ const updateProduct = async (
 
   if (!GENDERS.includes(productGender)) {
     throw createError(
-      'Gender must be men, women or unisex.',
-      400,
-      'INVALID_GENDER'
+      MESSAGES.PRODUCT.GENDER_MUST_BE_MEN_WOMEN_OR_UNISEX,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_GENDER
     );
   }
 
   if (!mongoose.Types.ObjectId.isValid(categoryId)) {
     throw createError(
-      'Invalid category id.',
-      400,
-      'INVALID_CATEGORY_ID'
+      MESSAGES.CATEGORY.INVALID_CATEGORY_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_CATEGORY_ID
     );
   }
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
     throw createError(
-      'Invalid brand id.',
-      400,
-      'INVALID_BRAND_ID'
+      MESSAGES.BRAND.INVALID_BRAND_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_BRAND_ID
     );
   }
 
@@ -621,17 +613,17 @@ const updateProduct = async (
 
   if (!category) {
     throw createError(
-      'Category not found.',
-      404,
-      'CATEGORY_NOT_FOUND'
+      MESSAGES.CATEGORY.CATEGORY_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.CATEGORY_NOT_FOUND
     );
   }
 
   if (!category.isActive) {
     throw createError(
-      'Cannot assign an inactive category to a product.',
-      400,
-      'CATEGORY_INACTIVE'
+      MESSAGES.PRODUCT.CANNOT_ASSIGN_AN_INACTIVE_CATEGORY_TO_A_PRODUCT,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.CATEGORY_INACTIVE
     );
   }
 
@@ -642,17 +634,17 @@ const updateProduct = async (
 
   if (!brand) {
     throw createError(
-      'Brand not found.',
-      404,
-      'BRAND_NOT_FOUND'
+      MESSAGES.BRAND.BRAND_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.BRAND_NOT_FOUND
     );
   }
 
   if (!brand.isActive) {
     throw createError(
-      'Cannot assign an inactive brand to a product.',
-      400,
-      'BRAND_INACTIVE'
+      MESSAGES.PRODUCT.CANNOT_ASSIGN_AN_INACTIVE_BRAND_TO_A_PRODUCT,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_INACTIVE
     );
   }
 
@@ -683,9 +675,9 @@ const deleteProduct = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
-      'Invalid product id.',
-      400,
-      'INVALID_PRODUCT_ID'
+      MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PRODUCT_ID
     );
   }
 
@@ -696,9 +688,9 @@ const deleteProduct = async (productId) => {
 
   if (!existingProduct) {
     throw createError(
-      'Product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.PRODUCT.PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
@@ -721,7 +713,7 @@ const deleteProduct = async (productId) => {
   );
 
   return {
-    message: 'Product deleted successfully.',
+    message: MESSAGES.PRODUCT.PRODUCT_DELETED_SUCCESSFULLY,
   };
 };
 
@@ -729,9 +721,9 @@ const toggleProductStatus = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
-      'Invalid product id.',
-      400,
-      'INVALID_PRODUCT_ID'
+      MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_PRODUCT_ID
     );
   }
 
@@ -747,21 +739,21 @@ const toggleProductStatus = async (productId) => {
         },
       },
     ],
-    { new: true }
+    { new: true, updatePipeline: true }
   );
 
   if (!updatedProduct) {
     throw createError(
-      'Product not found.',
-      404,
-      'PRODUCT_NOT_FOUND'
+      MESSAGES.PRODUCT.PRODUCT_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.PRODUCT_NOT_FOUND
     );
   }
 
   return {
-    message: `Product ${
-      updatedProduct.isActive ? 'activated' : 'deactivated'
-    } successfully.`,
+    message: updatedProduct.isActive
+      ? MESSAGES.PRODUCT.PRODUCT_ACTIVATED_SUCCESSFULLY
+      : MESSAGES.PRODUCT.PRODUCT_DEACTIVATED_SUCCESSFULLY,
     isActive: updatedProduct.isActive,
   };
 };

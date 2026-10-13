@@ -1,13 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {  login,
-  signup,
-  sendOtp,
-  verifyOtp,
-  forgotPassword,
-  verifyResetOtp,
-  resetPassword,
-  resendOtp,google,logout}= require('../../controllers/user/authController');
+const {  login, signup, sendOtp, verifyOtp, forgotPassword, verifyResetOtp, resetPassword, resendOtp,google,logout}= require('../../controllers/user/authController');
 
 router.post("/signup",signup);
 router.post("/login",login);

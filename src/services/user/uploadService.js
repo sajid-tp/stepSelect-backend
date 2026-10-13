@@ -1,11 +1,9 @@
 // src/services/uploadService.js
 const cloudinary = require('../../config/cloudinary');
+const createError = require('../../utils/createError');
+const STATUS = require('../../constants/statusCodes');
+const MESSAGES = require('../../constants/messages');
 
-const createError = (message, statusCode = 400) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-};
 
 // Helper: convert Multer buffer to base64 data URI
 const bufferToDataUri = (file) => {
@@ -15,7 +13,7 @@ const bufferToDataUri = (file) => {
 // 1. Upload a single file
 const uploadSingle = async (file, folder = 'stepSelect') => {
   if (!file) {
-    throw createError('No file provided', 400);
+    throw createError(MESSAGES.UPLOAD.NO_FILE_PROVIDED, STATUS.BAD_REQUEST);
   }
 
   const fileStr = bufferToDataUri(file);
@@ -27,7 +25,7 @@ const uploadSingle = async (file, folder = 'stepSelect') => {
 // 2. Upload multiple files in parallel
 const uploadMultiple = async (files, folder = 'stepSelect') => {
   if (!files || files.length === 0) {
-    throw createError('No files provided', 400);
+    throw createError(MESSAGES.UPLOAD.NO_FILES_PROVIDED, STATUS.BAD_REQUEST);
   }
 
   const uploadPromises = files.map((file) => {

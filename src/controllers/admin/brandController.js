@@ -1,151 +1,82 @@
 const adminBrandService = require('../../services/admin/adminBrandServices');
+const STATUS = require('../../constants/statusCodes');
 
 
 
 const getBrands = async (req, res) => {
-  try {
+  const { search, page, sort } = req.query;
 
-    const { search, page, sort } = req.query;
+  const data = await adminBrandService.getBrands({
+    search,
+    page,
+    limit: 5,
+    sort
+  });
 
-    const data = await adminBrandService.getBrands({
-      search,
-      page,
-      limit: 5,
-      sort
-    });
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
 
 const createBrand = async (req, res) => {
-  try {
+  const {
+    brandName,
+    description,
+    logo,
+  } = req.body;
 
-    const {
-      brandName,
-      description,
-      logo,
-    } = req.body;
+  const data = await adminBrandService.createBrand({
+    brandName,
+    description,
+    logo,
+  });
 
-    const data = await adminBrandService.createBrand({
-      brandName,
-      description,
-      logo,
-    });
-
-    return res.status(201).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.CREATED).json(data);
 };
 
 
 
 const updateBrand = async (req, res) => {
-  try {
+  const { brandId } = req.params;
 
-    const { brandId } = req.params;
+  const {
+    brandName,
+    description,
+    logo,
+  } = req.body;
 
-    const {
+  const data = await adminBrandService.updateBrand(
+    brandId,
+    {
       brandName,
       description,
       logo,
-    } = req.body;
+    }
+  );
 
-    const data = await adminBrandService.updateBrand(
-      brandId,
-      {
-        brandName,
-        description,
-        logo,
-      }
-    );
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
 
 const toggleBrandStatus = async (req, res) => {
-  try {
+  const { brandId } = req.params;
 
-    const { brandId } = req.params;
+  const data =
+    await adminBrandService.toggleBrandStatus(brandId);
 
-    const data =
-      await adminBrandService.toggleBrandStatus(brandId);
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
 
 const deleteBrand = async (req, res) => {
-  try {
+  const { brandId } = req.params;
 
-    const { brandId } = req.params;
+  const data =
+    await adminBrandService.deleteBrand(brandId);
 
-    const data =
-      await adminBrandService.deleteBrand(brandId);
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 

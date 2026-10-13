@@ -1,182 +1,101 @@
 const adminVariantService = require('../../services/admin/adminVariantServices');
+const STATUS = require('../../constants/statusCodes');
 
 const getVariants = async (req, res) => {
-  try {
+  const { productId } = req.params;
+  const { page } = req.query;
 
-    const { productId } = req.params;
-    const { page } = req.query;
+  const data = await adminVariantService.getVariants(
+    productId,
+    {
+      page,
+      limit: 5,
+    }
+  );
 
-    const data = await adminVariantService.getVariants(
-      productId,
-      {
-        page,
-        limit: 5,
-      }
-    );
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
 
 const getVariant = async (req, res) => {
-  try {
+  const { variantId } = req.params;
 
-    const { variantId } = req.params;
+  const data = await adminVariantService.getVariant(
+    variantId
+  );
 
-    const data = await adminVariantService.getVariant(
-      variantId
-    );
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
 const addVariant = async (req, res) => {
-  try {
+  const { productId } = req.params;
 
-    const { productId } = req.params;
+  const {
+    color,
+    price,
+    images,
+    sizes,
+  } = req.body;
 
-    const {
+  const data = await adminVariantService.addVariant(
+    productId,
+    {
       color,
       price,
       images,
       sizes,
-    } = req.body;
+    }
+  );
 
-    const data = await adminVariantService.addVariant(
-      productId,
-      {
-        color,
-        price,
-        images,
-        sizes,
-      }
-    );
-
-    return res.status(201).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.CREATED).json(data);
 };
 
 
 const updateVariant = async (req, res) => {
-  try {
-    const { variantId } = req.params;
+  const { variantId } = req.params;
 
-    const {
+  const {
+    color,
+    price,
+    images,
+    sizes,
+  } = req.body;
+
+  const data = await adminVariantService.updateVariant(
+    variantId,
+    {
       color,
       price,
       images,
       sizes,
-    } = req.body;
+    }
+  );
 
-    const data = await adminVariantService.updateVariant(
-      variantId,
-      {
-        color,
-        price,
-        images,
-        sizes,
-      }
-    );
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
 const deleteVariant = async (req, res) => {
-  try {
+  const { variantId } = req.params;
 
-    const { variantId } = req.params;
+  const data = await adminVariantService.deleteVariant(
+    variantId
+  );
 
-    const data = await adminVariantService.deleteVariant(
-      variantId
-    );
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
 const toggleVariantStatus = async (req, res) => {
-  try {
+  const { variantId } = req.params;
 
-    const { variantId } = req.params;
+  const data = await adminVariantService.toggleVariantStatus(
+    variantId
+  );
 
-    const data = await adminVariantService.toggleVariantStatus(
-      variantId
-    );
-
-    return res.status(200).json(data);
-
-  } catch (err) {
-
-    console.error(err);
-
-    return res.status(err.statusCode || 500).json({
-      error: {
-        code: err.code || 'SERVER_ERROR',
-        message: err.message || 'Something went wrong.',
-      },
-    });
-  }
+  return res.status(STATUS.OK).json(data);
 };
 
 
