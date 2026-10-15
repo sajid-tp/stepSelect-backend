@@ -12,10 +12,6 @@ const getVariants = async (
   { page = 1, limit = 5 }
 ) => {
 
-  // -----------------------------------
-  // 1. Validate product ID
-  // -----------------------------------
-
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
       MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
@@ -24,10 +20,6 @@ const getVariants = async (
     );
   }
 
-
-  // -----------------------------------
-  // 2. Validate pagination
-  // -----------------------------------
 
   const pageNum = Number(page);
   const limitNum = Number(limit);
@@ -54,11 +46,6 @@ const getVariants = async (
     );
   }
 
-
-  // -----------------------------------
-  // 3. Make sure product exists
-  // -----------------------------------
-
   const product = await Product.findOne({
     _id: productId,
     deletedAt: null,
@@ -72,27 +59,12 @@ const getVariants = async (
     );
   }
 
-
-  // -----------------------------------
-  // 4. Build variant filter
-  // -----------------------------------
-
   const filter = {
     productId: product._id,
     deletedAt: null,
   };
 
-
-  // -----------------------------------
-  // 5. Calculate pagination
-  // -----------------------------------
-
   const skip = (pageNum - 1) * limitNum;
-
-
-  // -----------------------------------
-  // 6. Get variants + total count
-  // -----------------------------------
 
   const [variants, totalVariants] = await Promise.all([
     Variant.find(filter)
@@ -102,11 +74,6 @@ const getVariants = async (
 
     Variant.countDocuments(filter),
   ]);
-
-
-  // -----------------------------------
-  // 7. Format response
-  // -----------------------------------
 
   const data = variants.map((variant) => ({
     id: variant._id,
@@ -121,9 +88,7 @@ const getVariants = async (
   }));
 
 
-  // -----------------------------------
-  // 8. Return response
-  // -----------------------------------
+
 
   return {
     variants: data,
@@ -138,73 +103,56 @@ const getVariants = async (
 };
 
 
-const getVariant = async (variantId) => {
+// const getVariant = async (variantId) => {
 
-  // -----------------------------------
-  // 1. Validate variant ID
-  // -----------------------------------
-
-  if (!mongoose.Types.ObjectId.isValid(variantId)) {
-    throw createError(
-      MESSAGES.VARIANT.INVALID_VARIANT_ID,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.INVALID_VARIANT_ID
-    );
-  }
+//   if (!mongoose.Types.ObjectId.isValid(variantId)) {
+//     throw createError(
+//       MESSAGES.VARIANT.INVALID_VARIANT_ID,
+//       STATUS.BAD_REQUEST,
+//       ERROR_CODES.INVALID_VARIANT_ID
+//     );
+//   }
 
 
-  // -----------------------------------
-  // 2. Find non-deleted variant
-  // -----------------------------------
+//   const variant = await Variant.findOne({
+//     _id: variantId,
+//     deletedAt: null,
+//   });
 
-  const variant = await Variant.findOne({
-    _id: variantId,
-    deletedAt: null,
-  });
+//   if (!variant) {
+//     throw createError(
+//       MESSAGES.VARIANT.VARIANT_NOT_FOUND,
+//       STATUS.NOT_FOUND,
+//       ERROR_CODES.VARIANT_NOT_FOUND
+//     );
+//   }
 
-  if (!variant) {
-    throw createError(
-      MESSAGES.VARIANT.VARIANT_NOT_FOUND,
-      STATUS.NOT_FOUND,
-      ERROR_CODES.VARIANT_NOT_FOUND
-    );
-  }
+//   const product = await Product.findOne({
+//     _id: variant.productId,
+//     deletedAt: null,
+//   });
 
-
-  // -----------------------------------
-  // 3. Make sure parent product exists
-  // -----------------------------------
-
-  const product = await Product.findOne({
-    _id: variant.productId,
-    deletedAt: null,
-  });
-
-  if (!product) {
-    throw createError(
-      MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
-      STATUS.NOT_FOUND,
-      ERROR_CODES.PRODUCT_NOT_FOUND
-    );
-  }
+//   if (!product) {
+//     throw createError(
+//       MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
+//       STATUS.NOT_FOUND,
+//       ERROR_CODES.PRODUCT_NOT_FOUND
+//     );
+//   }
 
 
-  // -----------------------------------
-  // 4. Return variant
-  // -----------------------------------
-
-  return {
-    id: variant._id,
-    productId: variant.productId,
-    color: variant.color,
-    price: variant.price,
-    images: variant.images,
-    sizes: variant.sizes,
-    isActive: variant.isActive,
-    createdAt: variant.createdAt,
-    updatedAt: variant.updatedAt,
-  };
-};
+//   return {
+//     id: variant._id,
+//     productId: variant.productId,
+//     color: variant.color,
+//     price: variant.price,
+//     images: variant.images,
+//     sizes: variant.sizes,
+//     isActive: variant.isActive,
+//     createdAt: variant.createdAt,
+//     updatedAt: variant.updatedAt,
+//   };
+// };
 
 const addVariant = async (
   productId,
@@ -216,10 +164,6 @@ const addVariant = async (
   }
 ) => {
 
-  // -----------------------------------
-  // 1. Validate product ID
-  // -----------------------------------
-
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(
       MESSAGES.PRODUCT.INVALID_PRODUCT_ID,
@@ -228,10 +172,6 @@ const addVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 2. Find existing non-deleted product
-  // -----------------------------------
 
   const product = await Product.findOne({
     _id: productId,
@@ -246,11 +186,6 @@ const addVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 3. Check product status
-  // -----------------------------------
-
   if (!product.isActive) {
     throw createError(
       MESSAGES.VARIANT.CANNOT_ADD_A_VARIANT_TO_AN_INACTIVE_PRODUCT,
@@ -258,11 +193,6 @@ const addVariant = async (
       ERROR_CODES.PRODUCT_INACTIVE
     );
   }
-
-
-  // -----------------------------------
-  // 4. Validate color
-  // -----------------------------------
 
   const variantColor = (color || '').trim();
 
@@ -273,11 +203,6 @@ const addVariant = async (
       ERROR_CODES.VARIANT_COLOR_REQUIRED
     );
   }
-
-
-  // -----------------------------------
-  // 5. Validate price
-  // -----------------------------------
 
   if (
     price === undefined ||
@@ -302,11 +227,6 @@ const addVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 6. Validate images
-  // -----------------------------------
-
   if (
     !Array.isArray(images) ||
     images.length < 3
@@ -317,11 +237,6 @@ const addVariant = async (
       ERROR_CODES.MINIMUM_IMAGES_REQUIRED
     );
   }
-
-
-  // -----------------------------------
-  // 7. Validate sizes
-  // -----------------------------------
 
   if (
     !Array.isArray(sizes) ||
@@ -334,11 +249,6 @@ const addVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 8. Validate each size
-  // -----------------------------------
-
   for (const sizeItem of sizes) {
 
     const size = (sizeItem.size || '').trim();
@@ -350,7 +260,6 @@ const addVariant = async (
         ERROR_CODES.SIZE_REQUIRED
       );
     }
-
 
     if (
       sizeItem.stock === undefined ||
@@ -377,10 +286,6 @@ const addVariant = async (
   }
 
 
-  // -----------------------------------
-  // 9. Create variant
-  // -----------------------------------
-
   const newVariant = await Variant.create({
     productId: product._id,
     color: variantColor,
@@ -391,11 +296,6 @@ const addVariant = async (
       stock: sizeItem.stock,
     })),
   });
-
-
-  // -----------------------------------
-  // 10. Return created variant
-  // -----------------------------------
 
   return {
     id: newVariant._id,
@@ -703,96 +603,94 @@ const deleteVariant = async (variantId) => {
   };
 };
 
-const toggleVariantStatus = async (variantId) => {
+// const toggleVariantStatus = async (variantId) => {
 
-  // -----------------------------------
-  // 1. Validate variant ID
-  // -----------------------------------
+//   // -----------------------------------
+//   // 1. Validate variant ID
+//   // -----------------------------------
 
-  if (!mongoose.Types.ObjectId.isValid(variantId)) {
-    throw createError(
-      MESSAGES.VARIANT.INVALID_VARIANT_ID,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.INVALID_VARIANT_ID
-    );
-  }
-
-
-  // -----------------------------------
-  // 2. Find non-deleted variant
-  // -----------------------------------
-
-  const existingVariant = await Variant.findOne({
-    _id: variantId,
-    deletedAt: null,
-  });
-
-  if (!existingVariant) {
-    throw createError(
-      MESSAGES.VARIANT.VARIANT_NOT_FOUND,
-      STATUS.NOT_FOUND,
-      ERROR_CODES.VARIANT_NOT_FOUND
-    );
-  }
+//   if (!mongoose.Types.ObjectId.isValid(variantId)) {
+//     throw createError(
+//       MESSAGES.VARIANT.INVALID_VARIANT_ID,
+//       STATUS.BAD_REQUEST,
+//       ERROR_CODES.INVALID_VARIANT_ID
+//     );
+//   }
 
 
-  // -----------------------------------
-  // 3. Make sure parent product exists
-  // -----------------------------------
+//   // -----------------------------------
+//   // 2. Find non-deleted variant
+//   // -----------------------------------
 
-  const product = await Product.findOne({
-    _id: existingVariant.productId,
-    deletedAt: null,
-  });
+//   const existingVariant = await Variant.findOne({
+//     _id: variantId,
+//     deletedAt: null,
+//   });
 
-  if (!product) {
-    throw createError(
-      MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
-      STATUS.NOT_FOUND,
-      ERROR_CODES.PRODUCT_NOT_FOUND
-    );
-  }
-
-
-  // -----------------------------------
-  // 4. Check parent product status
-  // -----------------------------------
-
-  if (!product.isActive) {
-    throw createError(
-      MESSAGES.VARIANT.CANNOT_CHANGE_STATUS_OF_VARIANT_OF_INACTIVE_PRODUCT,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.PRODUCT_INACTIVE
-    );
-  }
+//   if (!existingVariant) {
+//     throw createError(
+//       MESSAGES.VARIANT.VARIANT_NOT_FOUND,
+//       STATUS.NOT_FOUND,
+//       ERROR_CODES.VARIANT_NOT_FOUND
+//     );
+//   }
 
 
-  // -----------------------------------
-  // 5. Toggle variant status
-  // -----------------------------------
+//   // -----------------------------------
+//   // 3. Make sure parent product exists
+//   // -----------------------------------
 
-  existingVariant.isActive = !existingVariant.isActive;
+//   const product = await Product.findOne({
+//     _id: existingVariant.productId,
+//     deletedAt: null,
+//   });
 
-  await existingVariant.save();
+//   if (!product) {
+//     throw createError(
+//       MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
+//       STATUS.NOT_FOUND,
+//       ERROR_CODES.PRODUCT_NOT_FOUND
+//     );
+//   }
 
 
-  // -----------------------------------
-  // 6. Return response
-  // -----------------------------------
+//   // -----------------------------------
+//   // 4. Check parent product status
+//   // -----------------------------------
 
-  return {
-    message: existingVariant.isActive
-      ? MESSAGES.VARIANT.VARIANT_ACTIVATED_SUCCESSFULLY
-      : MESSAGES.VARIANT.VARIANT_DEACTIVATED_SUCCESSFULLY,
-    isActive: existingVariant.isActive,
-  };
-};
+//   if (!product.isActive) {
+//     throw createError(
+//       MESSAGES.VARIANT.CANNOT_CHANGE_STATUS_OF_VARIANT_OF_INACTIVE_PRODUCT,
+//       STATUS.BAD_REQUEST,
+//       ERROR_CODES.PRODUCT_INACTIVE
+//     );
+//   }
+
+
+//   // -----------------------------------
+//   // 5. Toggle variant status
+//   // -----------------------------------
+
+//   existingVariant.isActive = !existingVariant.isActive;
+
+//   await existingVariant.save();
+
+
+//   // -----------------------------------
+//   // 6. Return response
+//   // -----------------------------------
+
+//   return {
+//     message: existingVariant.isActive
+//       ? MESSAGES.VARIANT.VARIANT_ACTIVATED_SUCCESSFULLY
+//       : MESSAGES.VARIANT.VARIANT_DEACTIVATED_SUCCESSFULLY,
+//     isActive: existingVariant.isActive,
+//   };
+// };
 
 module.exports = {
   updateVariant,
   deleteVariant,
   getVariants,
-  getVariant,
-  toggleVariantStatus,
   addVariant
 };

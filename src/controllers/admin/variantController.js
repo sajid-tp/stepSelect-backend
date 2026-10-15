@@ -17,18 +17,6 @@ const getVariants = async (req, res) => {
 };
 
 
-
-const getVariant = async (req, res) => {
-  const { variantId } = req.params;
-
-  const data = await adminVariantService.getVariant(
-    variantId
-  );
-
-  return res.status(STATUS.OK).json(data);
-};
-
-
 const addVariant = async (req, res) => {
   const { productId } = req.params;
 
@@ -88,22 +76,21 @@ const deleteVariant = async (req, res) => {
 };
 
 
-const toggleVariantStatus = async (req, res) => {
-  const { variantId } = req.params;
+// const toggleVariantStatus = async (req, res) => {
+//   const { variantId } = req.params;
 
-  const data = await adminVariantService.toggleVariantStatus(
-    variantId
-  );
+//   const data = await adminVariantService.toggleVariantStatus(
+//     variantId
+//   );
 
-  return res.status(STATUS.OK).json(data);
-};
+//   return res.status(STATUS.OK).json(data);
+// };
 
 
 module.exports = {
   updateVariant,
   getVariants,
-  getVariant,
   deleteVariant,
-  toggleVariantStatus,
+  // toggleVariantStatus,
   addVariant
 };

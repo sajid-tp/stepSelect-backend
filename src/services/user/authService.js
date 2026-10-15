@@ -19,6 +19,7 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Internal Helper: OTP creation & dispatch
 const createAndSendOtp = async (user, type, emailSubject) => {
+  
   await OTP.deleteMany({ userId: user._id, type });
 
   const otp = Math.floor(Math.random() * 900000) + 100000;

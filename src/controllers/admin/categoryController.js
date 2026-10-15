@@ -1,21 +1,24 @@
-// POST /api/admin/categories
+
 const adminCategoryService = require('../../services/admin/adminCategoryServices')
 const STATUS = require('../../constants/statusCodes');
 
-
+//get categories
 const getCategories = async (req, res) => {
-  const { search, page, sort="newest" } = req.query;
+  const { search, page, sort="newest",status } = req.query;
 
   const data = await adminCategoryService.getCategories({
     search,
     page,
-    limit: 5,
-    sort
+    sort,
+    status
   });
 
   return res.status(STATUS.OK).json(data);
 };
 
+
+
+//create categories
 const createCategory = async (req, res) => {
   const { categoryName, iconClass, description } = req.body;
 
@@ -28,6 +31,9 @@ const createCategory = async (req, res) => {
   return res.status(STATUS.CREATED).json(data);
 };
 
+
+
+//update categories
 const updateCategory = async (req, res) => {
   const { categoryId } = req.params;
 
@@ -45,7 +51,7 @@ const updateCategory = async (req, res) => {
 };
 
 
-
+//toggleCategoryStatus
 const toggleCategoryStatus = async (req, res) => {
   const { categoryId } = req.params;
 
@@ -57,7 +63,7 @@ const toggleCategoryStatus = async (req, res) => {
 
 
 
-
+//deleteCategory
 const deleteCategory = async (req, res) => {
   const { categoryId } = req.params;
 

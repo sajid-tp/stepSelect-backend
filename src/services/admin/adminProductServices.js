@@ -22,13 +22,12 @@ const SORT_MAP = {
 const getProducts = async ({
   search,
   page = 1,
-  limit = 5,
   sort,
   status,
 }) => {
 
   const pageNum = Number(page);
-  const limitNum = Number(limit);
+  const limitNum = 8
 
   if (pageNum < 1) {
     throw createError(
@@ -38,27 +37,14 @@ const getProducts = async ({
     );
   }
 
-  if (limitNum < 1) {
-    throw createError(
-      MESSAGES.COMMON.LIMIT_MUST_BE_GREATER_THAN_0,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.INVALID_LIMIT
-    );
-  }
-
   const filter = {
     deletedAt: null,
   };
 
-  if (search && search.trim()) {
-    const escapedSearch = search
-      .trim()
-      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    filter.productName = {
-      $regex: escapedSearch,
-      $options: 'i',
-    };
+  const searchText = (search || '').trim();
+  if (searchText) {
+    const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    filter.categoryName = { $regex: escaped, $options: 'i' };
   }
 
   if (status === 'active') {
@@ -540,7 +526,7 @@ const updateProduct = async (
     );
   }
 
-  const name = typeof productName === 'string' ? productName.trim() : '';
+  const name =  productName.trim() || '';
 
   if (!name) {
     throw createError(
@@ -567,8 +553,7 @@ const updateProduct = async (
     );
   }
 
-  const productDescription =
-    typeof description === 'string' ? description.trim() : '';
+  const productDescription = description.trim() || '';
 
   if (!productDescription) {
     throw createError(
@@ -579,8 +564,7 @@ const updateProduct = async (
   }
 
 
-  const productGender =
-    typeof gender === 'string' ? gender.trim().toLowerCase() : '';
+  const productGender = gender.trim().toLowerCase() || '';
 
   if (!GENDERS.includes(productGender)) {
     throw createError(

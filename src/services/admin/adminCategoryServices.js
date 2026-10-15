@@ -1,4 +1,4 @@
-// src/services/admin/adminCategoryServices.js
+
 const Category = require('../../models/categories');
 const mongoose = require('mongoose');
 const createError = require('../../utils/createError');
@@ -6,7 +6,7 @@ const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 
-// Sort options allowed from the frontend
+
 const SORT_MAP = {
   newest: { createdAt: -1 },
   oldest: { createdAt: 1 },
@@ -14,7 +14,7 @@ const SORT_MAP = {
   name_desc: { categoryName: -1 },
 };
 
-// Shape of a category sent back to the frontend
+
 const formatCategory = (category) => ({
   id: category._id,
   categoryName: category.categoryName,
@@ -25,32 +25,35 @@ const formatCategory = (category) => ({
   updatedAt: category.updatedAt,
 });
 
-// 1. Get Paginated, Searched & Sorted Categories
-const getCategories = async ({ search, page = 1, sort }) => {
+// 1 . getCategory
+const getCategories = async ({ search, page = 1, sort, status }) => {
+
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = 8;
 
-  // Hide soft-deleted categories
   const filter = { deletedAt: null };
 
-  // Search filtering (special regex characters are escaped)
   const searchText = (search || '').trim();
   if (searchText) {
     const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     filter.categoryName = { $regex: escaped, $options: 'i' };
   }
 
-  // Sorting (falls back to newest, _id keeps the order stable)
+
+    if (status === 'active') {
+    filter.isActive = true;
+  } else if (status === 'inactive') {
+    filter.isActive = false;
+  }
+
   const sortOption = {
     ...(SORT_MAP[sort] || SORT_MAP.newest),
     _id: -1,
   };
 
-  // Count total matches
   const totalResults = await Category.countDocuments(filter);
   const totalPages = Math.ceil(totalResults / limitNum) || 1;
 
-  // Fetch paginated documents
   const categories = await Category.find(filter)
     .sort(sortOption)
     .collation({ locale: 'en', strength: 2 })
@@ -66,7 +69,9 @@ const getCategories = async ({ search, page = 1, sort }) => {
   };
 };
 
-// 2. Create Category
+
+
+// 2. createCategory
 const createCategory = async ({ categoryName, iconClass, description }) => {
   const name = (categoryName || '').trim();
 
@@ -82,7 +87,6 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
     );
   }
 
-  // Duplicate check (case-insensitive, ignores deleted categories)
   const existingCategory = await Category.findOne({
     categoryName: name,
     deletedAt: null,
@@ -117,8 +121,11 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
   }
 };
 
+
+
 // 3. Update Category
 const updateCategory = async (categoryId, { categoryName, iconClass, description }) => {
+
   if (!mongoose.Types.ObjectId.isValid(categoryId)) {
     throw createError(MESSAGES.CATEGORY.INVALID_CATEGORY_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_CATEGORY_ID);
   }
@@ -143,7 +150,6 @@ const updateCategory = async (categoryId, { categoryName, iconClass, description
     throw createError(MESSAGES.CATEGORY.CATEGORY_NAME_IS_REQUIRED, STATUS.BAD_REQUEST, ERROR_CODES.CATEGORY_NAME_REQUIRED);
   }
 
-  // Duplicate check (ignores this category itself and deleted ones)
   const duplicateCategory = await Category.findOne({
     categoryName: name,
     deletedAt: null,
@@ -179,7 +185,6 @@ const toggleCategoryStatus = async (categoryId) => {
     throw createError(MESSAGES.CATEGORY.CATEGORY_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.CATEGORY_NOT_FOUND);
   }
 
-  // A deleted category cannot be activated/deactivated
   if (existingCategory.deletedAt !== null) {
     throw createError(
       MESSAGES.CATEGORY.CANNOT_CHANGE_THE_STATUS_OF_A_DELETED_CATEGORY,
@@ -191,12 +196,7 @@ const toggleCategoryStatus = async (categoryId) => {
   existingCategory.isActive = !existingCategory.isActive;
   await existingCategory.save();
 
-  return {
-    id: existingCategory._id,
-    categoryName: existingCategory.categoryName,
-    isActive: existingCategory.isActive,
-    deletedAt: existingCategory.deletedAt,
-  };
+  return formatCategory(existingCategory)
 };
 
 // 5. Delete Category (soft delete)
@@ -220,12 +220,7 @@ const deleteCategory = async (categoryId) => {
 
   await existingCategory.save();
 
-  return {
-    id: existingCategory._id,
-    categoryName: existingCategory.categoryName,
-    isActive: existingCategory.isActive,
-    deletedAt: existingCategory.deletedAt,
-  };
+  return formatCategory(existingCategory)
 };
 
 module.exports = {

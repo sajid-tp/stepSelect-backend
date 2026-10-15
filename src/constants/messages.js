@@ -184,6 +184,14 @@ const MESSAGES = Object.freeze({
     THIS_SIZE_IS_OUT_OF_STOCK: 'This size is out of stock.',
   }),
 
+  WISHLIST: Object.freeze({
+    ALREADY_IN_WISHLIST: 'Already in your wishlist.',
+    ITEM_ADDED_TO_WISHLIST: 'Added to wishlist.',
+    ITEM_NOT_FOUND_IN_WISHLIST: 'Item not found in wishlist.',
+    ITEM_REMOVED_FROM_WISHLIST: 'Removed from wishlist.',
+    WISHLIST_CLEARED: 'Wishlist cleared.',
+  }),
+
   UPLOAD: Object.freeze({
     NO_FILES_PROVIDED: 'No files provided',
     NO_FILES_UPLOADED: 'No files uploaded',
