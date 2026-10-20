@@ -24,6 +24,7 @@
     "mongoose": "^9.11.0",
     "multer": "^2.4.0",
     "nodemailer": "^10.0.15",
+    "pdfkit": "^0.20.2",
     "react-easy-crop": "^6.2.4"
   },
   "devDependencies": {

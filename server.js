@@ -19,6 +19,10 @@ const categoryRoutes = require('./src/routes/user/categoryRoutes');
 const brandRoutes = require('./src/routes/user/brandRoutes');
 const cartRoutes = require('./src/routes/user/cartRoutes');
 const wishlistRoutes = require('./src/routes/user/wishlistRoutes');
+const checkoutRoutes = require('./src/routes/user/checkoutRoutes');
+const orderRoutes = require('./src/routes/user/orderRoutes');
+const adminOrderRoutes = require('./src/routes/admin/orderRoutes');
+const adminInventoryRoutes = require('./src/routes/admin/inventoryRoutes');
 const adminCategoryRoutes = require('./src/routes/admin/categoryRoutes');
 const adminBrandRoutes = require('./src/routes/admin/brandRoutes');
 const adminProducts = require('./src/routes/admin/productRoutes');
@@ -45,6 +49,8 @@ app.use('/api/categories',categoryRoutes);
 app.use('/api/brands',brandRoutes);
 app.use('/api/cart',cartRoutes);
 app.use('/api/wishlist',wishlistRoutes);
+app.use('/api/checkout',checkoutRoutes);
+app.use('/api/orders',orderRoutes);
 
 //admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
@@ -53,6 +59,8 @@ app.use('/api/admin/categories',adminCategoryRoutes);
 app.use('/api/admin/brands', adminBrandRoutes);
 app.use('/api/admin/products',adminProducts);
 app.use('/api/admin/variants',adminVariants);
+app.use('/api/admin/orders',adminOrderRoutes);
+app.use('/api/admin/inventory',adminInventoryRoutes);
 app.use(
   "/api/admin/uploads",
   adminUploadRoutes
