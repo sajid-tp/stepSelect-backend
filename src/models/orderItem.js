@@ -31,6 +31,9 @@ const orderItemSchema = new mongoose.Schema(
     // Money for the whole line (final price x quantity, and its share of tax)
     itemTotal: { type: Number, required: true, min: 0 },
     taxAmount: { type: Number, default: 0, min: 0 },
+    // This line's share of the order's coupon discount. Used to keep the order total correct
+    // when single items are cancelled.
+    couponShare: { type: Number, default: 0, min: 0 },
 
     status: { type: String, enum: Object.values(ITEM_STATUS), default: ITEM_STATUS.PENDING },
     statusHistory: { type: [statusHistorySchema], default: [] },

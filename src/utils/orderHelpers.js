@@ -3,14 +3,7 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Variant = require('../models/variants');
-const OrderItem = require('../models/orderItem');
-const {
-  PRICING,
-  ORDER_STATUS,
-  ITEM_STATUS,
-  RETURNABLE_ORDER_STATUSES,
-  ESTIMATED_DELIVERY_DAYS,
-} = require('../constants/orderConstants');
+const { PRICING } = require('../constants/orderConstants');
 
 const isObjectId = (id) => Boolean(id) && /^[0-9a-fA-F]{24}$/.test(String(id));
 
@@ -47,26 +40,67 @@ const calculateLine = (price, discountPercent, quantity) => {
   };
 };
 
-// Totals for a list of lines (each line from calculateLine)
-const calculateTotals = (lines, shippingFeeOverride) => {
+// Totals for a list of lines (each line from calculateLine).
+// couponDiscount (optional) is the money a coupon takes off AFTER the product discounts.
+const calculateTotals = (lines, shippingFeeOverride, couponDiscount = 0) => {
   const subtotal = lines.reduce((sum, l) => sum + l.lineSubtotal, 0);
   const discountTotal = lines.reduce((sum, l) => sum + l.lineDiscount, 0);
   const taxTotal = lines.reduce((sum, l) => sum + l.taxAmount, 0);
   const afterDiscount = subtotal - discountTotal;
 
+  // A coupon can never take off more than what is left to pay
+  const coupon = Math.min(Math.max(Math.round(Number(couponDiscount) || 0), 0), afterDiscount);
+  const afterCoupon = afterDiscount - coupon;
+
   let shippingFee = shippingFeeOverride;
   if (shippingFee === undefined) {
-    const free = PRICING.FREE_SHIPPING_ABOVE > 0 && afterDiscount >= PRICING.FREE_SHIPPING_ABOVE;
+    const free = PRICING.FREE_SHIPPING_ABOVE > 0 && afterCoupon >= PRICING.FREE_SHIPPING_ABOVE;
     shippingFee = free || lines.length === 0 ? 0 : PRICING.SHIPPING_FEE;
   }
 
   return {
     subtotal,
     discountTotal,
+    couponDiscount: coupon,
     taxTotal,
     shippingFee,
-    totalAmount: afterDiscount + taxTotal + shippingFee,
+    totalAmount: afterCoupon + taxTotal + shippingFee,
   };
+};
+
+// How much a coupon takes off `base` (the amount after product discounts, before tax/shipping).
+//   percentage -> base x value / 100, limited by maximumDiscount (null or 0 = no limit)
+//   flat       -> the fixed value
+// In both cases the result is a whole number and never more than `base`.
+const calculateCouponDiscount = (coupon, base) => {
+  const amount = Math.max(Number(base) || 0, 0);
+  let discount;
+
+  if (coupon.discountType === 'percentage') {
+    discount = (amount * coupon.discountValue) / 100;
+    if (coupon.maximumDiscount != null && coupon.maximumDiscount > 0) {
+      discount = Math.min(discount, coupon.maximumDiscount);
+    }
+  } else {
+    discount = coupon.discountValue;
+  }
+
+  return Math.max(Math.min(Math.round(discount), amount), 0);
+};
+
+// Split the coupon discount over the order lines in proportion to what each line costs.
+// The shares always add up to exactly couponDiscount (the last line takes the rounding leftover).
+const allocateCouponShares = (lines, couponDiscount) => {
+  const total = lines.reduce((sum, l) => sum + l.itemTotal, 0);
+  if (!couponDiscount || total <= 0) return lines.map(() => 0);
+
+  let given = 0;
+  return lines.map((l, index) => {
+    if (index === lines.length - 1) return couponDiscount - given;
+    const share = Math.floor((l.itemTotal * couponDiscount) / total);
+    given += share;
+    return share;
+  });
 };
 
 // Take stock out. Atomic: the update only matches if enough stock is still there,
@@ -80,68 +114,17 @@ const reduceStock = async (variantId, size, quantity) => {
 };
 
 // Put stock back (cancel / approved return)
-// Put stock back (cancellation / approved return).
-// Optional session supports transaction-safe stock restoration.
-
 const restoreStock = async (variantId, size, quantity) => {
   if (!quantity || quantity < 1) return;
-
-  const result = await Variant.updateOne(
-    {
-      _id: variantId,
-      'sizes.size': String(size),
-    },
-    {
-      $inc: {
-        'sizes.$.stock': quantity,
-      },
-    }
+  await Variant.updateOne(
+    { _id: variantId, 'sizes.size': String(size) },
+    { $inc: { 'sizes.$.stock': quantity } }
   );
-
-  if (result.matchedCount !== 1) {
-    throw new Error(
-      `Unable to restore stock for variant ${variantId}, size ${size}`
-    );
-  }
 };
 
 // Add a line to the item's status history
 const pushHistory = (item, status, note = '') => {
   item.statusHistory.push({ status, note, updatedAt: new Date() });
-};
-
-// "2026-10-25": the day the order is expected to arrive (stored at order time, or placed date + N days for old orders)
-const estimatedDeliveryDate = (order) => {
-  const base = order.estimatedDelivery
-    ? new Date(order.estimatedDelivery)
-    : new Date(new Date(order.createdAt || Date.now()).getTime() + ESTIMATED_DELIVERY_DAYS * 24 * 60 * 60 * 1000);
-  return base.toISOString().slice(0, 10);
-};
-
-const addDays = (date, days) => new Date(new Date(date).getTime() + days * 24 * 60 * 60 * 1000);
-
-// Keep the ORDER's return state in line with its items:
-//   any item waiting for admin  -> return_requested
-//   every live item returned    -> returned
-//   otherwise                   -> delivered
-// Only touches orders that are already delivered (or in a return state).
-const syncReturnStatus = async (order) => {
-  if (!RETURNABLE_ORDER_STATUSES.includes(order.status)) return;
-
-  const items = await OrderItem.find({ orderId: order._id });
-  const live = items.filter((i) => i.status !== ITEM_STATUS.CANCELLED);
-
-  let next = ORDER_STATUS.DELIVERED;
-  if (live.some((i) => i.status === ITEM_STATUS.RETURN_REQUESTED)) {
-    next = ORDER_STATUS.RETURN_REQUESTED;
-  } else if (live.length > 0 && live.every((i) => i.status === ITEM_STATUS.RETURNED)) {
-    next = ORDER_STATUS.RETURNED;
-  }
-
-  if (next !== order.status) {
-    order.status = next;
-    await order.save();
-  }
 };
 
 const first = (images) => {
@@ -157,12 +140,11 @@ module.exports = {
   getFinalUnitPrice,
   calculateLine,
   calculateTotals,
+  calculateCouponDiscount,
+  allocateCouponShares,
   reduceStock,
   restoreStock,
   pushHistory,
-  estimatedDeliveryDate,
-  addDays,
-  syncReturnStatus,
   firstImage: first,
   mongoose,
 };

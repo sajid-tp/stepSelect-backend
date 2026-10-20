@@ -8,19 +8,12 @@ const ERROR_CODES = require('../../constants/errorCodes');
 const { CANCEL_REASONS, RETURN_REASONS } = require('../../constants/orderConstants');
 
 /*
-  POST   /api/orders/cod                            body: { shippingAddress, couponId? }   (checkoutController.placeOrder)
   GET    /api/orders?search=&status=&page=&limit=   -> data = { orders[], pagination }
   GET    /api/orders/reasons                        -> data = { cancelReasons[], returnReasons[] }
-  GET    /api/orders/:orderId/summary               -> data = { orderNumber, totalAmount, estimatedDelivery, itemCount, ... }
   GET    /api/orders/:orderId                       -> data = order        (orderId = _id or orderNumber)
-  POST   /api/orders/:orderId/cancel                body: { cancelReason }
-                                                    -> data = { orderId, status, refundAmount, refundedTo, order }
-  POST   /api/orders/:orderId/items/:orderItemId/cancel   body: { cancelReason }
-                                                    -> data = { orderItemId, status, refundAmount, refundedTo, order }
-  POST   /api/orders/:orderId/return                body: { returnReason, returnDescription? }
-                                                    -> data = { orderId, status: 'return_requested', order }
-  POST   /api/orders/:orderId/items/:orderItemId/return   body: { returnReason, returnDescription? }
-                                                    -> data = { orderItemId, status: 'return_requested', order }
+  POST   /api/orders/:orderId/cancel                body: { reason? }
+  POST   /api/orders/:orderId/items/:itemId/cancel  body: { reason? }
+  POST   /api/orders/:orderId/return                body: { reason (required), description?, itemIds? }
   GET    /api/orders/:orderId/invoice               -> PDF file download
 */
 
@@ -45,37 +38,54 @@ const getMyOrder = async (req, res) => {
 };
 
 const cancelOrder = async (req, res) => {
-  const data = await orderService.cancelOrder(getUserId(req), req.params.orderId, req.body || {});
+  const body = req.body || {};
+  const data = await orderService.cancelOrder(getUserId(req), req.params.orderId, {
+    reason: body.reason ?? body.cancelReason,
+  });
   return res.status(STATUS.OK).json({ message: MESSAGES.ORDER.ORDER_CANCELLED_SUCCESSFULLY, data });
 };
 
-const getOrderSummary = async (req, res) => {
-  const data = await orderService.getOrderSummary(getUserId(req), req.params.orderId);
-  return res.status(STATUS.OK).json({ data });
-};
-
-// POST /api/orders/:orderId/items/:itemId/cancel
-
 const cancelOrderItem = async (req, res) => {
-  const data = await orderService.cancelOrderItem(
-    getUserId(req),
-    req.params.orderId,
-    req.params.orderItemId,
-    req.body || {}
-  );
-
-  return res.status(STATUS.OK).json({ data });
+  const { orderId, itemId } = req.params;
+  const body = req.body || {};
+  const data = await orderService.cancelOrderItem(getUserId(req), orderId, itemId, {
+    reason: body.reason ?? body.cancelReason,
+  });
+  return res.status(STATUS.OK).json({ message: MESSAGES.ORDER.ITEM_CANCELLED_SUCCESSFULLY, data });
 };
-
 
 const returnOrder = async (req, res) => {
-  const data = await orderService.returnOrder(getUserId(req), req.params.orderId, req.body || {});
+  const body = req.body || {};
+  const data = await orderService.returnOrder(getUserId(req), req.params.orderId, {
+    reason: body.reason ?? body.returnReason,
+    description: body.description ?? body.returnDescription,
+    itemIds: body.itemIds,
+  });
   return res.status(STATUS.OK).json({ message: MESSAGES.ORDER.RETURN_REQUESTED_SUCCESSFULLY, data });
 };
 
+const getOrderSummary = async (req, res) => {
+  const order = await orderService.getMyOrder(getUserId(req), req.params.orderId);
+  return res.status(STATUS.OK).json({
+    data: {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      totalAmount: order.pricing.totalAmount,
+      createdAt: order.createdAt,
+    },
+  });
+};
+
 const returnOrderItem = async (req, res) => {
-  const { orderId, orderItemId } = req.params;
-  const data = await orderService.returnOrderItem(getUserId(req), orderId, orderItemId, req.body || {});
+  const body = req.body || {};
+  const data = await orderService.returnOrder(getUserId(req), req.params.orderId, {
+    reason: body.reason ?? body.returnReason,
+    description: body.description ?? body.returnDescription,
+    itemIds: [req.params.itemId],
+  });
   return res.status(STATUS.OK).json({ message: MESSAGES.ORDER.RETURN_REQUESTED_SUCCESSFULLY, data });
 };
 

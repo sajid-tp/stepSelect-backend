@@ -6,11 +6,9 @@ const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 
 /*
-  GET  /api/checkout   -> data = { addresses[], defaultAddressId, items[], subtotal, couponDiscount, total,
-                                   walletBalance, pricing, paymentMethods, canPlaceOrder }
-  POST /api/orders/cod   body: { shippingAddress (addressId), couponId? }        <- the Postman route
-  POST /api/checkout/place-order   same handler, older route (also accepts { addressId, paymentMethod })
-                       -> 201 data = { orderId, orderNumber, totalAmount, status:'placed', paymentMethod, paymentStatus }
+  GET  /api/checkout   -> data = { addresses[], defaultAddressId, items[], pricing, paymentMethods, canPlaceOrder }
+  POST /api/checkout/place-order   body: { addressId?, paymentMethod? ('COD') }
+                       -> 201 data = { orderId, orderNumber, totalAmount, paymentMethod }
   failure -> 4xx { success:false, message, error:{ code, message } }
 */
 
@@ -28,8 +26,14 @@ const getCheckoutSummary = async (req, res) => {
 
 // POST /api/checkout/place-order
 const placeOrder = async (req, res) => {
-  const { shippingAddress, addressId, couponId, paymentMethod } = req.body || {};
-  const data = await checkoutService.placeOrder(getUserId(req), { shippingAddress, addressId, couponId, paymentMethod });
+  const { addressId, shippingAddress, paymentMethod } = req.body || {};
+  // Postman user-side COD request calls the selected address `shippingAddress`.
+  // Keep `addressId` supported for the checkout endpoint as well.
+  const selectedAddressId = addressId || shippingAddress;
+  const data = await checkoutService.placeOrder(getUserId(req), {
+    addressId: selectedAddressId,
+    paymentMethod: paymentMethod || 'COD',
+  });
   return res.status(STATUS.CREATED).json({ message: MESSAGES.CHECKOUT.ORDER_PLACED_SUCCESSFULLY, data });
 };
 

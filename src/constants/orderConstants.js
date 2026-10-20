@@ -8,23 +8,15 @@ const ORDER_STATUS = Object.freeze({
   OUT_FOR_DELIVERY: 'out_for_delivery',
   DELIVERED: 'delivered',
   CANCELLED: 'cancelled',
-  // A delivered order moves here while a return is open / finished (kept in sync from its items)
-  RETURN_REQUESTED: 'return_requested',
-  RETURNED: 'returned',
 });
 
-// Item-only status: admin rejected the return
+// Extra item-only statuses used by the return flow
 const ITEM_STATUS = Object.freeze({
   ...ORDER_STATUS,
+  RETURN_REQUESTED: 'return_requested',
+  RETURNED: 'returned',
   RETURN_REJECTED: 'return_rejected',
 });
-
-// Orders in these states can still have items returned
-const RETURNABLE_ORDER_STATUSES = Object.freeze([
-  ORDER_STATUS.DELIVERED,
-  ORDER_STATUS.RETURN_REQUESTED,
-  ORDER_STATUS.RETURNED,
-]);
 
 // Admin can only move forward in this order (cancel is handled separately)
 const STATUS_FLOW = [
@@ -34,28 +26,6 @@ const STATUS_FLOW = [
   ORDER_STATUS.DELIVERED,
 ];
 
-// What the API shows to the client (matches the Postman collection).
-// Stored value `pending` is shown as `placed` to customers and `processing` to admins.
-// Existing database records are NOT changed, only the names used in requests / responses.
-const PUBLIC_STATUS = Object.freeze({
-  user: { [ORDER_STATUS.PENDING]: 'placed' },
-  admin: { [ORDER_STATUS.PENDING]: 'processing' },
-});
-
-// Names a client may send (filters / admin status updates) -> stored value
-const STATUS_ALIASES = Object.freeze({
-  placed: ORDER_STATUS.PENDING,
-  processing: ORDER_STATUS.PENDING,
-});
-
-const toPublicStatus = (status, audience = 'user') =>
-  (PUBLIC_STATUS[audience] && PUBLIC_STATUS[audience][status]) || status;
-
-const toStoredStatus = (value) => {
-  const v = String(value || '').trim().toLowerCase();
-  return STATUS_ALIASES[v] || v;
-};
-
 const PAYMENT_METHODS = Object.freeze({ COD: 'COD' });
 const PAYMENT_STATUS = Object.freeze({
   PENDING: 'pending',
@@ -64,8 +34,6 @@ const PAYMENT_STATUS = Object.freeze({
   REFUNDED: 'refunded',
 });
 
-// Quick-pick lists for the dropdowns (GET /orders/reasons).
-// The API also accepts free text, because the Postman contract says "reason selected/entered by the user".
 const CANCEL_REASONS = [
   'Changed my mind',
   'Ordered by mistake',
@@ -80,13 +48,8 @@ const RETURN_REASONS = [
   'Defective product',
   'Wrong item received',
   'Quality not as expected',
-  'Not as described',
   'Other',
 ];
-
-const MAX_REASON_LENGTH = 200;
-const MAX_DESCRIPTION_LENGTH = 500;
-const MAX_SHIPPING_TEXT_LENGTH = 100;   // carrier / trackingId
 
 // Pricing rules. Change these numbers to change checkout everywhere.
 const PRICING = Object.freeze({
@@ -95,31 +58,16 @@ const PRICING = Object.freeze({
   FREE_SHIPPING_ABOVE: 0,    // shipping is free when the amount after discount reaches this
 });
 
-// Delivery promise shown on the order success / details screens
-const ESTIMATED_DELIVERY_DAYS = 5;
-
-// A delivered order can be returned for this many days
-const RETURN_WINDOW_DAYS = 7;
-
 const LOW_STOCK_LIMIT = 5;
 
 module.exports = {
   ORDER_STATUS,
   ITEM_STATUS,
   STATUS_FLOW,
-  RETURNABLE_ORDER_STATUSES,
   PAYMENT_METHODS,
   PAYMENT_STATUS,
   CANCEL_REASONS,
   RETURN_REASONS,
   PRICING,
-  PUBLIC_STATUS,
-  toPublicStatus,
-  toStoredStatus,
-  MAX_REASON_LENGTH,
-  MAX_DESCRIPTION_LENGTH,
-  MAX_SHIPPING_TEXT_LENGTH,
-  ESTIMATED_DELIVERY_DAYS,
-  RETURN_WINDOW_DAYS,
   LOW_STOCK_LIMIT,
 };

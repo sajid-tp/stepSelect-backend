@@ -32,16 +32,12 @@ const orderSchema = new mongoose.Schema(
     totalAmount: { type: Number, required: true, min: 0 },    // what the customer pays
 
     couponId: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon', default: null },
+    couponCode: { type: String, default: null },                // snapshot, the coupon may be edited/deleted later
+    couponDiscount: { type: Number, default: 0, min: 0 },       // money taken off by the coupon (on top of discountTotal)
 
     status: { type: String, enum: Object.values(ORDER_STATUS), default: ORDER_STATUS.PENDING, index: true },
     paymentMethod: { type: String, enum: Object.values(PAYMENT_METHODS), default: PAYMENT_METHODS.COD },
     paymentStatus: { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.PENDING },
-
-    // Shown on the order details and success screens
-    estimatedDelivery: { type: Date, default: null },
-    // Set by the admin (PATCH /api/admin/orders/:orderId)
-    carrier: { type: String, default: '', trim: true },
-    trackingId: { type: String, default: '', trim: true },
 
     deliveredAt: { type: Date, default: null },
     cancelledAt: { type: Date, default: null },

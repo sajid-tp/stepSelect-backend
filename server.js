@@ -21,12 +21,14 @@ const cartRoutes = require('./src/routes/user/cartRoutes');
 const wishlistRoutes = require('./src/routes/user/wishlistRoutes');
 const checkoutRoutes = require('./src/routes/user/checkoutRoutes');
 const orderRoutes = require('./src/routes/user/orderRoutes');
+const couponRoutes = require('./src/routes/user/couponRoutes');
 const adminOrderRoutes = require('./src/routes/admin/orderRoutes');
 const adminInventoryRoutes = require('./src/routes/admin/inventoryRoutes');
 const adminCategoryRoutes = require('./src/routes/admin/categoryRoutes');
 const adminBrandRoutes = require('./src/routes/admin/brandRoutes');
 const adminProducts = require('./src/routes/admin/productRoutes');
 const adminVariants = require('./src/routes/admin/variantRoutes');
+const adminCouponRoutes = require('./src/routes/admin/couponRoutes');
 const adminUploadRoutes =
   require("./src/routes/admin/uploadRoutes");
 const app = express();
@@ -51,6 +53,7 @@ app.use('/api/cart',cartRoutes);
 app.use('/api/wishlist',wishlistRoutes);
 app.use('/api/checkout',checkoutRoutes);
 app.use('/api/orders',orderRoutes);
+app.use('/api/coupons',couponRoutes);
 
 //admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
@@ -59,6 +62,7 @@ app.use('/api/admin/categories',adminCategoryRoutes);
 app.use('/api/admin/brands', adminBrandRoutes);
 app.use('/api/admin/products',adminProducts);
 app.use('/api/admin/variants',adminVariants);
+app.use('/api/admin/coupons', adminCouponRoutes);
 app.use('/api/admin/orders',adminOrderRoutes);
 app.use('/api/admin/inventory',adminInventoryRoutes);
 app.use(

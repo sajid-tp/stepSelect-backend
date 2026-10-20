@@ -11,12 +11,9 @@ const {
   ITEM_STATUS,
   STATUS_FLOW,
   PAYMENT_STATUS,
-  MAX_SHIPPING_TEXT_LENGTH,
-  toPublicStatus,
-  toStoredStatus,
 } = require('../../constants/orderConstants');
-const { isObjectId, escapeRegex, restoreStock, syncReturnStatus } = require('../../utils/orderHelpers');
-const { toOrderView } = require('../../utils/orderViews');
+const { isObjectId, escapeRegex, restoreStock, calculateTotals } = require('../../utils/orderHelpers');
+const { toOrderView } = require('../user/orderService');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
@@ -34,7 +31,7 @@ const findOrder = async (orderRef) => {
   }
   const order = await Order.findOne(isObjectId(orderRef) ? { _id: orderRef } : { orderNumber: String(orderRef) });
   if (!order) {
-    throw createError(MESSAGES.ORDER.ADMIN_ORDER_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.ORDER_NOT_FOUND);
+    throw createError(MESSAGES.ORDER.ORDER_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.ORDER_NOT_FOUND);
   }
   return order;
 };
@@ -51,9 +48,7 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
 
   const filter = {};
 
-  // processing is the admin name for a new order (stored as pending)
-  const storedStatus = status ? toStoredStatus(status) : null;
-  if (storedStatus && Object.values(ORDER_STATUS).includes(storedStatus)) filter.status = storedStatus;
+  if (status && Object.values(ORDER_STATUS).includes(status)) filter.status = status;
 
   // Date range on the order date (from / to as YYYY-MM-DD)
   if (from || to) {
@@ -77,7 +72,7 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
 
   const sortBy = SORTS[sort] || SORTS.newest;
 
-  const totalResults = await Order.countDocuments(filter);
+  const totalItems = await Order.countDocuments(filter);
   const orders = await Order.find(filter)
     .sort(sortBy)
     .skip((pageNum - 1) * limitNum)
@@ -93,27 +88,24 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
     orders: orders.map((o) => ({
       id: String(o._id),
       orderNumber: o.orderNumber,
-      customerName: o.userId ? o.userId.username || '' : '',
-      customerEmail: o.userId ? o.userId.email || '' : '',
-      totalAmount: o.totalAmount,
-      placedAt: o.createdAt,
       createdAt: o.createdAt,
-      status: toPublicStatus(o.status, 'admin'),
+      status: o.status,
       paymentMethod: o.paymentMethod,
       paymentStatus: o.paymentStatus,
+      totalAmount: o.totalAmount,
       itemCount: (counts.find((c) => String(c._id) === String(o._id)) || {}).count || 0,
       user: toUserView(o.userId),
     })),
     pagination: {
       page: pageNum,
       limit: limitNum,
-      totalResults,
-      totalPages: Math.ceil(totalResults / limitNum) || 1,
+      totalItems,
+      totalPages: Math.ceil(totalItems / limitNum) || 1,
     },
   };
 };
 
-// 2. One order with customer details (Edit Order screen)
+// 2. One order with customer details
 const getOrder = async (orderRef) => {
   const order = await findOrder(orderRef);
   const [items, user] = await Promise.all([
@@ -121,25 +113,15 @@ const getOrder = async (orderRef) => {
     User.findById(order.userId).select('username email phoneNumber'),
   ]);
 
-  const view = toOrderView(order, items, 'admin');
-  const a = order.shippingAddress || {};
   const nextIndex = STATUS_FLOW.indexOf(order.status) + 1;
-  const canChange = STATUS_FLOW.includes(order.status) && order.status !== ORDER_STATUS.DELIVERED;
+  const canChange = ![ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED].includes(order.status);
 
   return {
-    ...view,
+    ...toOrderView(order, items),
     user: toUserView(user),
-    // Shipping block of the Edit Order screen
-    shipping: {
-      fullName: a.name || '',
-      phoneNumber: a.phoneNumber || '',
-      address: [a.detailedAddress, a.city, a.pinCode, a.country].filter(Boolean).join(', '),
-      carrier: order.carrier || '',
-      trackingId: order.trackingId || '',
-    },
     // Statuses the admin dropdown can offer right now
     allowedStatuses: canChange
-      ? [...STATUS_FLOW.slice(nextIndex), ORDER_STATUS.CANCELLED].map((st) => toPublicStatus(st, 'admin'))
+      ? [...STATUS_FLOW.slice(nextIndex), ORDER_STATUS.CANCELLED]
       : [],
   };
 };
@@ -168,48 +150,38 @@ const cancelAllOpenItems = async (order, note) => {
   }
 };
 
-// 3. Update an order: status, payment status, carrier and tracking id, any of them, in one call.
-//    Status moves forward only: processing -> shipped -> out_for_delivery -> delivered. Cancel is allowed before delivery.
-//    ("processing" is the admin name for a new order; it is stored as "pending".)
-const ADMIN_STATUS_TARGETS = [...STATUS_FLOW, ORDER_STATUS.CANCELLED];
-
-const invalidTransition = (current, target) =>
-  createError(
-    MESSAGES.ORDER.INVALID_STATUS_TRANSITION(toPublicStatus(current, 'admin'), toPublicStatus(target, 'admin')),
-    STATUS.CONFLICT,
-    ERROR_CODES.INVALID_STATUS_TRANSITION
-  );
-
-const assertCanMoveTo = (current, target) => {
-  if (!STATUS_FLOW.includes(current) || current === ORDER_STATUS.DELIVERED || target === current) {
-    throw invalidTransition(current, target);
+// 3. Change order status. Forward only: pending -> shipped -> out_for_delivery -> delivered. Cancel before delivery.
+const updateOrderStatus = async (orderRef, newStatus) => {
+  if (!Object.values(ORDER_STATUS).includes(newStatus)) {
+    throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
   }
-  if (target !== ORDER_STATUS.CANCELLED && STATUS_FLOW.indexOf(target) <= STATUS_FLOW.indexOf(current)) {
-    throw invalidTransition(current, target);
-  }
-};
 
-// carrier / trackingId: text, empty or null clears it
-const cleanShippingText = (value, field) => {
-  const text = value === null ? '' : String(value).trim();
-  if (text.length > MAX_SHIPPING_TEXT_LENGTH) {
+  const order = await findOrder(orderRef);
+  const current = order.status;
+
+  if (current === ORDER_STATUS.CANCELLED || current === ORDER_STATUS.DELIVERED || newStatus === current) {
     throw createError(
-      MESSAGES.ORDER.INVALID_SHIPPING_FIELD(field, MAX_SHIPPING_TEXT_LENGTH),
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.VALIDATION_ERROR
+      MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus),
+      STATUS.CONFLICT,
+      ERROR_CODES.INVALID_STATUS_TRANSITION
     );
   }
-  return text;
-};
 
-// Internal Helper: move the order and its live items to the new status (the caller saves the order)
-const applyStatusChange = async (order, newStatus) => {
   if (newStatus === ORDER_STATUS.CANCELLED) {
     await cancelAllOpenItems(order, 'Cancelled by admin');
     order.status = ORDER_STATUS.CANCELLED;
     order.cancelledAt = new Date();
     order.cancelReason = 'Cancelled by admin';
-    return;
+    await order.save();
+    return getOrder(order._id);
+  }
+
+  if (STATUS_FLOW.indexOf(newStatus) <= STATUS_FLOW.indexOf(current)) {
+    throw createError(
+      MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus),
+      STATUS.CONFLICT,
+      ERROR_CODES.INVALID_STATUS_TRANSITION
+    );
   }
 
   // Move every item that is still in the normal flow (cancelled / return items are left alone)
@@ -226,53 +198,9 @@ const applyStatusChange = async (order, newStatus) => {
     order.deliveredAt = new Date();
     order.paymentStatus = PAYMENT_STATUS.PAID; // cash collected on delivery
   }
-};
-
-const updateOrder = async (orderRef, body = {}) => {
-  const { status, paymentStatus, carrier, trackingId } = body;
-  const given = (v) => v !== undefined;
-
-  if (![status, paymentStatus, carrier, trackingId].some(given)) {
-    throw createError(MESSAGES.ORDER.NOTHING_TO_UPDATE, STATUS.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR);
-  }
-
-  // Check every field first, so a bad value changes nothing
-  let newStatus;
-  if (given(status)) {
-    newStatus = toStoredStatus(status);
-    if (!ADMIN_STATUS_TARGETS.includes(newStatus)) {
-      throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
-    }
-  }
-  if (given(paymentStatus) && !Object.values(PAYMENT_STATUS).includes(paymentStatus)) {
-    throw createError(MESSAGES.ORDER.INVALID_PAYMENT_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_PAYMENT_STATUS);
-  }
-  const newCarrier = given(carrier) ? cleanShippingText(carrier, 'carrier') : undefined;
-  const newTracking = given(trackingId) ? cleanShippingText(trackingId, 'trackingId') : undefined;
-
-  const order = await findOrder(orderRef);
-
-  // "Save changes" on the Edit Order screen sends the current status again: that is not a status change,
-  // as long as something else is being saved with it.
-  const savingOtherFields = [paymentStatus, carrier, trackingId].some(given);
-  const changeStatus = given(status) && !(newStatus === order.status && savingOtherFields);
-  if (changeStatus) assertCanMoveTo(order.status, newStatus);
-
-  if (changeStatus) await applyStatusChange(order, newStatus);
-  if (given(paymentStatus)) order.paymentStatus = paymentStatus; // an explicit value wins over the automatic "paid"
-  if (newCarrier !== undefined) order.carrier = newCarrier;
-  if (newTracking !== undefined) order.trackingId = newTracking;
   await order.save();
 
   return getOrder(order._id);
-};
-
-// PATCH /:orderId/status (older route): only the status
-const updateOrderStatus = async (orderRef, newStatus) => {
-  if (newStatus === undefined || newStatus === null || String(newStatus).trim() === '') {
-    throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
-  }
-  return updateOrder(orderRef, { status: newStatus });
 };
 
 // 4. Approve or reject a return request for one item
@@ -305,8 +233,7 @@ const handleReturn = async (orderRef, itemId, action) => {
     await restoreStock(item.variantId, item.size, item.quantity); // shoes go back on the shelf
   }
 
-  await syncReturnStatus(order);
   return getOrder(order._id);
 };
 
-module.exports = { getOrders, getOrder, updateOrder, updateOrderStatus, handleReturn };
+module.exports = { getOrders, getOrder, updateOrderStatus, handleReturn };

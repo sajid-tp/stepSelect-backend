@@ -1,5 +1,6 @@
 // src/services/user/cartService.js
 const Cart = require('../../models/cart');
+const Wishlist = require('../../models/wishlist');
 const Product = require('../../models/products');
 const Variant = require('../../models/variants');
 const createError = require('../../utils/createError');
@@ -187,6 +188,10 @@ const addToCart = async (userId, { variantId, size, quantity }) => {
   }
 
   await cart.save();
+
+  // Moved to cart: take this colour + size off the wishlist (if it was there)
+  await Wishlist.updateOne({ userId }, { $pull: { items: { variantId, size: sizeValue } } });
+
   return await buildCartView(cart);
 };
 
@@ -231,7 +236,7 @@ const removeCartItem = async (userId, variantId, size) => {
 const clearCart = async (userId) => {
   const cart = await Cart.findOneAndUpdate(
     { userId },
-    { $set: { items: [] } },
+    { $set: { items: [], couponId: null } },
     { new: true }
   );
   return await buildCartView(cart);
