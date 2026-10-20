@@ -80,12 +80,29 @@ const reduceStock = async (variantId, size, quantity) => {
 };
 
 // Put stock back (cancel / approved return)
+// Put stock back (cancellation / approved return).
+// Optional session supports transaction-safe stock restoration.
+
 const restoreStock = async (variantId, size, quantity) => {
   if (!quantity || quantity < 1) return;
-  await Variant.updateOne(
-    { _id: variantId, 'sizes.size': String(size) },
-    { $inc: { 'sizes.$.stock': quantity } }
+
+  const result = await Variant.updateOne(
+    {
+      _id: variantId,
+      'sizes.size': String(size),
+    },
+    {
+      $inc: {
+        'sizes.$.stock': quantity,
+      },
+    }
   );
+
+  if (result.matchedCount !== 1) {
+    throw new Error(
+      `Unable to restore stock for variant ${variantId}, size ${size}`
+    );
+  }
 };
 
 // Add a line to the item's status history

@@ -54,11 +54,19 @@ const getOrderSummary = async (req, res) => {
   return res.status(STATUS.OK).json({ data });
 };
 
+// POST /api/orders/:orderId/items/:itemId/cancel
+
 const cancelOrderItem = async (req, res) => {
-  const { orderId, orderItemId } = req.params;
-  const data = await orderService.cancelOrderItem(getUserId(req), orderId, orderItemId, req.body || {});
-  return res.status(STATUS.OK).json({ message: MESSAGES.ORDER.ITEM_CANCELLED_SUCCESSFULLY, data });
+  const data = await orderService.cancelOrderItem(
+    getUserId(req),
+    req.params.orderId,
+    req.params.orderItemId,
+    req.body || {}
+  );
+
+  return res.status(STATUS.OK).json({ data });
 };
+
 
 const returnOrder = async (req, res) => {
   const data = await orderService.returnOrder(getUserId(req), req.params.orderId, req.body || {});
