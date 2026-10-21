@@ -245,6 +245,10 @@ const MESSAGES = Object.freeze({
     INVALID_RETURN_ACTION: 'Action must be approve or reject.',
     NO_RETURN_REQUEST_FOR_ITEM: 'This item has no pending return request.',
     RETURN_UPDATED: 'Return request updated.',
+    // constants/messages.js  (inside the ORDER object)
+INVALID_QUANTITY: 'Quantity must be a whole number of 1 or more.',
+CANCEL_QUANTITY_EXCEEDS: 'You cannot cancel more units than are left in the order.',
+RETURN_QUANTITY_EXCEEDS: 'You cannot return more units than were delivered.',
   }),
 
   INVENTORY: Object.freeze({

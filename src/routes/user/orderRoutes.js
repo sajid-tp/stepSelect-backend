@@ -22,8 +22,8 @@ router.get('/:orderId/summary', protect('user'), getOrderSummary);
 router.get('/:orderId', protect('user'), getMyOrder);
 router.get('/:orderId/invoice', protect('user'), downloadInvoice);
 router.post('/:orderId/cancel', protect('user'), cancelOrder);
-router.post('/:orderId/items/:orderItemId/cancel', protect('user'), cancelOrderItem);
+router.post('/:orderId/items/:itemId/cancel', protect('user'), cancelOrderItem);
 router.post('/:orderId/return', protect('user'), returnOrder);
-router.post('/:orderId/items/:orderItemId/return', protect('user'), returnOrderItem);
+router.post('/:orderId/items/:itemId/return', protect('user'), returnOrderItem);
 
 module.exports = router;
