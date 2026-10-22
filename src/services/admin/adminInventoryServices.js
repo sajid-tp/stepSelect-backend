@@ -1,5 +1,6 @@
 // src/services/admin/adminInventoryServices.js
 const Variant = require('../../models/variants');
+const Product = require('../../models/products');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
@@ -45,18 +46,24 @@ const getInventory = async ({ search, stockFilter, sort, page, limit } = {}) => 
   const text = search ? String(search).trim() : '';
   const regex = text ? new RegExp(escapeRegex(text), 'i') : null;
 
-  const pipeline = [
+  // Same joins for the list and for the summary cards
+  const joinStages = [
     { $match: { deletedAt: null } },
     { $lookup: { from: 'products', localField: 'productId', foreignField: '_id', as: 'product' } },
     { $unwind: '$product' },
     { $match: { 'product.deletedAt': null } },
-    ...(regex ? [{ $match: { $or: [{ 'product.productName': regex }, { color: regex }] } }] : []),
-    {
-      $addFields: {
-        totalStock: { $sum: '$sizes.stock' },
-        sizeCount: { $size: '$sizes' },
-      },
+  ];
+  const stockFields = {
+    $addFields: {
+      totalStock: { $sum: '$sizes.stock' },
+      sizeCount: { $size: '$sizes' },
     },
+  };
+
+  const pipeline = [
+    ...joinStages,
+    ...(regex ? [{ $match: { $or: [{ 'product.productName': regex }, { color: regex }] } }] : []),
+    stockFields,
   ];
 
   if (stockFilter === 'out') {
@@ -84,12 +91,40 @@ const getInventory = async ({ search, stockFilter, sort, page, limit } = {}) => 
     },
   });
 
-  const [result] = await Variant.aggregate(pipeline);
+  // Counts for the cards at the top of the page (all variants, not affected by search / filter)
+  const lowLimit = { $multiply: [LOW_STOCK_LIMIT, '$sizeCount'] };
+  const summaryPipeline = [
+    ...joinStages,
+    stockFields,
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        out: { $sum: { $cond: [{ $eq: ['$totalStock', 0] }, 1, 0] } },
+        low: {
+          $sum: {
+            $cond: [{ $and: [{ $gt: ['$totalStock', 0] }, { $lte: ['$totalStock', lowLimit] }] }, 1, 0],
+          },
+        },
+        units: { $sum: '$totalStock' },
+      },
+    },
+  ];
+
+  const [[result], [counts]] = await Promise.all([Variant.aggregate(pipeline), Variant.aggregate(summaryPipeline)]);
   const totalItems = result.total[0] ? result.total[0].count : 0;
+  const summary = {
+    total: counts ? counts.total : 0,
+    out: counts ? counts.out : 0,
+    low: counts ? counts.low : 0,
+    inStock: counts ? counts.total - counts.out - counts.low : 0,
+    units: counts ? counts.units : 0,
+  };
 
   return {
     items: result.rows.map((row) => toRow(row, row.product)),
     lowStockLimit: LOW_STOCK_LIMIT,
+    summary,
     pagination: {
       page: pageNum,
       limit: limitNum,
@@ -146,7 +181,9 @@ const updateStock = async (variantId, { size, stock, adjust } = {}) => {
     throw createError(MESSAGES.INVENTORY.INVALID_STOCK_VALUE, STATUS.CONFLICT, ERROR_CODES.INVALID_STOCK);
   }
 
-  return toRow(updated, null);
+  // The list rows show the product name, so send it back too
+  const product = await Product.findById(updated.productId).select('productName');
+  return toRow(updated, product);
 };
 
 module.exports = { getInventory, updateStock };

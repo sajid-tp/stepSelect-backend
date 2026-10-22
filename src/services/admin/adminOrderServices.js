@@ -12,7 +12,7 @@ const {
   STATUS_FLOW,
   PAYMENT_STATUS,
 } = require('../../constants/orderConstants');
-const { isObjectId, escapeRegex, restoreStock, calculateTotals } = require('../../utils/orderHelpers');
+const { isObjectId, escapeRegex, restoreStock, calculateTotals, pushHistory } = require('../../utils/orderHelpers');
 const { toOrderView } = require('../user/orderService');
 
 const DEFAULT_LIMIT = 10;
@@ -204,7 +204,7 @@ const updateOrderStatus = async (orderRef, newStatus) => {
 };
 
 // 4. Approve or reject a return request for one item
-const handleReturn = async (orderRef, itemId, action) => {
+const handleReturn = async (orderRef, itemId, action, reason) => {
   if (!['approve', 'reject'].includes(action)) {
     throw createError(MESSAGES.ORDER.INVALID_RETURN_ACTION, STATUS.BAD_REQUEST);
   }
@@ -212,25 +212,47 @@ const handleReturn = async (orderRef, itemId, action) => {
     throw createError(MESSAGES.ORDER.INVALID_ITEM_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ITEM_ID);
   }
 
-  const order = await findOrder(orderRef);
-  const newStatus = action === 'approve' ? ITEM_STATUS.RETURNED : ITEM_STATUS.RETURN_REJECTED;
+  // A rejection must come with a reason, so the customer knows why
+  const cleanReason = String(reason || '').trim().slice(0, 300);
+  if (action === 'reject' && !cleanReason) {
+    throw createError('Please give a reason for rejecting the return.', STATUS.BAD_REQUEST);
+  }
 
-  const item = await OrderItem.findOneAndUpdate(
-    { _id: itemId, orderId: order._id, status: ITEM_STATUS.RETURN_REQUESTED },
-    {
-      $set: { status: newStatus },
-      $push: { statusHistory: { status: newStatus, note: 'Updated by admin', updatedAt: new Date() } },
-    },
-    { new: true }
-  );
+  const order = await findOrder(orderRef);
+
+  const item = await OrderItem.findOne({
+    _id: itemId,
+    orderId: order._id,
+    status: ITEM_STATUS.RETURN_REQUESTED,
+  });
   if (!item) {
     throw createError(MESSAGES.ORDER.NO_RETURN_REQUEST_FOR_ITEM, STATUS.CONFLICT, ERROR_CODES.RETURN_NOT_ALLOWED);
   }
 
+  // Units the customer asked for (older requests saved before the schema fix fall back to the whole line)
+  const requestedQty = item.returnRequestedQuantity || item.quantity - (item.cancelledQuantity || 0);
+
   if (action === 'approve') {
-    item.returnedQuantity = item.quantity;
+    item.returnedQuantity = (item.returnedQuantity || 0) + requestedQty;
+    item.returnRequestedQuantity = 0;
+
+    // Everything returned -> "returned". Only some units returned -> back to "delivered"
+    // so the customer can still return the rest later.
+    const delivered = item.deliveredQuantity || item.quantity - (item.cancelledQuantity || 0);
+    item.status = item.returnedQuantity >= delivered ? ITEM_STATUS.RETURNED : ITEM_STATUS.DELIVERED;
+
+    pushHistory(item, ITEM_STATUS.RETURNED, `Return approved for ${requestedQty} unit(s)`);
     await item.save();
-    await restoreStock(item.variantId, item.size, item.quantity); // shoes go back on the shelf
+    await restoreStock(item.variantId, item.size, requestedQty); // shoes go back on the shelf
+  } else {
+    // Rejected: keep the reason and put the item back to "delivered"
+    item.returnRejectReason = cleanReason;
+    item.returnRejectedAt = new Date();
+    item.returnRequestedQuantity = 0;
+    item.status = ITEM_STATUS.DELIVERED;
+
+    pushHistory(item, ITEM_STATUS.RETURN_REJECTED, `Return rejected: ${cleanReason}`);
+    await item.save();
   }
 
   return getOrder(order._id);

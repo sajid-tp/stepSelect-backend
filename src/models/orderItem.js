@@ -48,6 +48,12 @@ const orderItemSchema = new mongoose.Schema(
     returnReason: { type: String, default: null },
     returnDescription: { type: String, default: null },
     returnRequestedAt: { type: Date, default: null },
+    // Units the customer asked to return (was missing before, so Mongoose silently dropped it)
+    returnRequestedQuantity: { type: Number, default: 0 },
+
+    // Filled when the admin rejects a return request
+    returnRejectReason: { type: String, default: null },
+    returnRejectedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

@@ -7,10 +7,9 @@ const ERROR_CODES = require("../constants/errorCodes");
 
 const protect = (role = "user") => async (req, res, next) => {
   // Preserve the existing cookie selection logic
-  const cookieName =
-    role === "admin"
-      ? (req.cookies?.token ? "token" : "accessToken")
-      : (req.cookies?.accessToken ? "accessToken" : "token");
+
+
+  const cookieName = role === "admin" ? "token" : "accessToken";
 
   const token = req.cookies?.[cookieName];
 

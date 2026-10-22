@@ -1,137 +1,272 @@
-// src/services/user/orderService.js
+
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
+
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
+
 const {
   ORDER_STATUS,
   ITEM_STATUS,
   CANCEL_REASONS,
   RETURN_REASONS,
 } = require('../../constants/orderConstants');
+
 const {
   isObjectId,
   escapeRegex,
   calculateTotals,
   restoreStock,
 } = require('../../utils/orderHelpers');
+
 const { releaseCoupon } = require('./couponService');
 
+
+// Default pagination settings
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
 
-// ---------- Internal helpers ----------
 
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+// ==================================================
+// BASIC HELPER FUNCTIONS
+// ==================================================
 
-// Units of this item that are still part of the order (not cancelled)
-const remainingQty = (item) => item.quantity - (item.cancelledQuantity || 0);
-
-// Units of this item the customer can still ask to return
-const returnableQty = (item) => {
-  if (item.status !== ITEM_STATUS.DELIVERED) return 0;
-  const delivered = item.deliveredQuantity || remainingQty(item);
-  return Math.max(delivered - (item.returnedQuantity || 0) - (item.returnRequestedQuantity || 0), 0);
+// Round a number to two decimal places
+const round2 = (number) => {
+  return Math.round((Number(number) || 0) * 100) / 100;
 };
 
-// Order by its _id or by its readable orderNumber, only if it belongs to this user
+
+// Calculate the quantity that has not been cancelled
+const getRemainingQuantity = (item) => {
+  const cancelledQuantity = item.cancelledQuantity || 0;
+
+  return item.quantity - cancelledQuantity;
+};
+
+
+// Calculate how many units can still be returned
+const getReturnableQuantity = (item) => {
+  if (item.status !== ITEM_STATUS.DELIVERED) {
+    return 0;
+  }
+
+  const deliveredQuantity =
+    item.deliveredQuantity || getRemainingQuantity(item);
+
+  const returnedQuantity = item.returnedQuantity || 0;
+  const requestedQuantity = item.returnRequestedQuantity || 0;
+
+  const quantityAvailable =
+    deliveredQuantity - returnedQuantity - requestedQuantity;
+
+  return Math.max(quantityAvailable, 0);
+};
+
+
+// Find an order that belongs to the logged-in user
 const findUserOrder = async (userId, orderRef) => {
   if (!orderRef) {
-    throw createError(MESSAGES.ORDER.INVALID_ORDER_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_ID);
+    throw createError(
+      MESSAGES.ORDER.INVALID_ORDER_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_ORDER_ID
+    );
   }
-  const filter = isObjectId(orderRef) ? { _id: orderRef, userId } : { orderNumber: String(orderRef), userId };
-  const order = await Order.findOne(filter);
+
+  let order;
+
+  // The user may provide either the MongoDB ID or the order number
+  if (isObjectId(orderRef)) {
+    order = await Order.findOne({
+      _id: orderRef,
+      userId,
+    });
+  } else {
+    order = await Order.findOne({
+      orderNumber: String(orderRef),
+      userId,
+    });
+  }
+
   if (!order) {
-    throw createError(MESSAGES.ORDER.ORDER_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.ORDER_NOT_FOUND);
+    throw createError(
+      MESSAGES.ORDER.ORDER_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.ORDER_NOT_FOUND
+    );
   }
+
   return order;
 };
 
-// Optional reason for cancelling: must be one of the list if given
-const cleanCancelReason = (reason) => {
-  if (reason === undefined || reason === null || String(reason).trim() === '') return null;
-  const value = String(reason).trim();
-  if (!CANCEL_REASONS.includes(value)) {
-    throw createError(MESSAGES.ORDER.INVALID_CANCEL_REASON, STATUS.BAD_REQUEST);
-  }
-  return value;
-};
 
-// Mandatory reason for returning: must be one of the list
-const cleanReturnReason = (reason) => {
+// Validate the cancellation reason
+const getCancelReason = (reason) => {
   if (reason === undefined || reason === null || String(reason).trim() === '') {
-    throw createError(MESSAGES.ORDER.RETURN_REASON_IS_REQUIRED, STATUS.BAD_REQUEST, ERROR_CODES.RETURN_REASON_REQUIRED);
+    return null;
   }
-  const value = String(reason).trim();
-  if (!RETURN_REASONS.includes(value)) {
-    throw createError(MESSAGES.ORDER.INVALID_RETURN_REASON, STATUS.BAD_REQUEST, ERROR_CODES.RETURN_REASON_REQUIRED);
+
+  const cleanReason = String(reason).trim();
+
+  if (!CANCEL_REASONS.includes(cleanReason)) {
+    throw createError(
+      MESSAGES.ORDER.INVALID_CANCEL_REASON,
+      STATUS.BAD_REQUEST
+    );
   }
-  return value;
+
+  return cleanReason;
 };
 
-// Quantity must be a whole number, 1 or more
-const cleanQuantity = (value) => {
-  const qty = Number(value);
-  if (!Number.isInteger(qty) || qty < 1) {
-    throw createError(MESSAGES.ORDER.INVALID_QUANTITY, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_QUANTITY);
+
+// Validate the return reason
+const getReturnReason = (reason) => {
+  if (reason === undefined || reason === null || String(reason).trim() === '') {
+    throw createError(
+      MESSAGES.ORDER.RETURN_REASON_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_REASON_REQUIRED
+    );
   }
-  return qty;
+
+  const cleanReason = String(reason).trim();
+
+  if (!RETURN_REASONS.includes(cleanReason)) {
+    throw createError(
+      MESSAGES.ORDER.INVALID_RETURN_REASON,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_REASON_REQUIRED
+    );
+  }
+
+  return cleanReason;
 };
 
+
+// Validate a requested quantity
+const getValidQuantity = (quantity) => {
+  const number = Number(quantity);
+
+  if (!Number.isInteger(number) || number < 1) {
+    throw createError(
+      MESSAGES.ORDER.INVALID_QUANTITY,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_QUANTITY
+    );
+  }
+
+  return number;
+};
+
+
+// Clean the optional return description
+const getReturnDescription = (description) => {
+  if (!description) {
+    return null;
+  }
+
+  return String(description).trim().slice(0, 500);
+};
+
+
+// ==================================================
+// FORMAT ORDER DATA FOR THE FRONTEND
+// ==================================================
+
+// Convert one order item into a simple response object
 const toItemView = (item) => {
-  const remaining = remainingQty(item);
-  const maxReturn = returnableQty(item);
+  const remainingQuantity = getRemainingQuantity(item);
+  const returnableQuantity = getReturnableQuantity(item);
+
+  let remainingTotal = 0;
+
+  if (item.quantity > 0) {
+    remainingTotal =
+      (item.itemTotal / item.quantity) * remainingQuantity;
+  }
+
   return {
     id: String(item._id),
     productId: String(item.productId),
     variantId: String(item.variantId),
+
     name: item.name,
     color: item.color,
     size: item.size,
     image: item.image,
+
     price: item.price,
     discountPercent: item.discountPercent,
     finalPrice: item.finalPrice,
+
     quantity: item.quantity,
     itemTotal: item.itemTotal,
     status: item.status,
 
-    // quantity details
+    // Quantity information
     cancelledQuantity: item.cancelledQuantity || 0,
-    remainingQuantity: remaining,
-    remainingTotal: round2((item.itemTotal / item.quantity) * remaining),
+    remainingQuantity,
+    remainingTotal: round2(remainingTotal),
+
     returnRequestedQuantity: item.returnRequestedQuantity || 0,
     returnedQuantity: item.returnedQuantity || 0,
 
+    // Cancellation information
     cancelReason: item.cancelReason,
     cancelledAt: item.cancelledAt,
+
+    // Return information
     returnReason: item.returnReason,
     returnDescription: item.returnDescription,
     returnRequestedAt: item.returnRequestedAt,
+    returnRejectReason: item.returnRejectReason || null,
+    returnRejectedAt: item.returnRejectedAt || null,
+
     statusHistory: item.statusHistory,
 
-    canCancel: item.status === ITEM_STATUS.PENDING && remaining > 0,
-    maxCancelQuantity: item.status === ITEM_STATUS.PENDING ? remaining : 0,
-    canReturn: maxReturn > 0,
-    maxReturnQuantity: maxReturn,
+    // Actions available to the customer
+    canCancel:
+      item.status === ITEM_STATUS.PENDING &&
+      remainingQuantity > 0,
+
+    maxCancelQuantity:
+      item.status === ITEM_STATUS.PENDING
+        ? remainingQuantity
+        : 0,
+
+    canReturn: returnableQuantity > 0,
+    maxReturnQuantity: returnableQuantity,
   };
 };
 
+
+// Convert an order and its items into the frontend response
 const toOrderView = (order, items) => {
-  const itemViews = items.map(toItemView);
+  const itemViews = items.map((item) => {
+    return toItemView(item);
+  });
+
+  const canCancel = itemViews.some((item) => item.canCancel);
+  const canReturn = itemViews.some((item) => item.canReturn);
+
   return {
     id: String(order._id),
     orderNumber: order.orderNumber,
+
     status: order.status,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+
     createdAt: order.createdAt,
     deliveredAt: order.deliveredAt,
     cancelledAt: order.cancelledAt,
+
     shippingAddress: order.shippingAddress,
     couponCode: order.couponCode || null,
+
     pricing: {
       subtotal: order.subtotal,
       discountTotal: order.discountTotal,
@@ -140,92 +275,183 @@ const toOrderView = (order, items) => {
       shippingFee: order.shippingFee,
       totalAmount: order.totalAmount,
     },
+
     items: itemViews,
     itemCount: itemViews.length,
-    canCancel: order.status === ORDER_STATUS.PENDING && itemViews.some((i) => i.canCancel),
-    canReturn: order.status === ORDER_STATUS.DELIVERED && itemViews.some((i) => i.canReturn),
+
+    canCancel:
+      order.status === ORDER_STATUS.PENDING && canCancel,
+
+    canReturn:
+      order.status === ORDER_STATUS.DELIVERED && canReturn,
+
     canDownloadInvoice: order.status !== ORDER_STATUS.CANCELLED,
   };
 };
 
-// After units are cancelled: recalculate what the customer pays, or mark the whole order cancelled.
-// Price, tax and coupon share of a partly cancelled item are cut in proportion to the units left.
-const refreshOrderAfterCancel = async (order, reason) => {
-  const items = await OrderItem.find({ orderId: order._id });
-  const active = items.filter((i) => remainingQty(i) > 0);
 
-  if (active.length === 0) {
+// ==================================================
+// UPDATE ORDER TOTALS AFTER CANCELLATION
+// ==================================================
+
+const refreshOrderAfterCancel = async (order, reason) => {
+  const items = await OrderItem.find({
+    orderId: order._id,
+  });
+
+  // Keep items that still have at least one uncancelled unit
+  const activeItems = items.filter((item) => {
+    return getRemainingQuantity(item) > 0;
+  });
+
+
+  // If every item is cancelled, cancel the whole order
+  if (activeItems.length === 0) {
     order.status = ORDER_STATUS.CANCELLED;
     order.cancelledAt = new Date();
-    order.cancelReason = reason || order.cancelReason;
+
+    if (reason) {
+      order.cancelReason = reason;
+    }
+
     await order.save();
-    // The whole order is gone, so the coupon use goes back to the user and the coupon
+
+    // Restore the coupon usage because the whole order was cancelled
     await releaseCoupon(order.couponId);
+
     return;
   }
 
-  let couponDiscount = 0;
-  const lines = active.map((i) => {
-    const remaining = remainingQty(i);
-    const ratio = remaining / i.quantity;
-    const lineSubtotal = i.price * remaining;
-    const lineTotal = round2(i.itemTotal * ratio);
-    couponDiscount += round2((i.couponShare || 0) * ratio);
-    return {
-      lineSubtotal,
-      lineDiscount: round2(lineSubtotal - lineTotal),
-      taxAmount: round2((i.taxAmount || 0) * ratio),
-    };
-  });
 
-  const totals = calculateTotals(lines, order.shippingFee, round2(couponDiscount));
+  // Recalculate the totals for the remaining quantities
+  const lines = [];
+  let couponDiscount = 0;
+
+  for (const item of activeItems) {
+    const remainingQuantity = getRemainingQuantity(item);
+
+    // Calculate the proportion of the item that remains
+    const remainingRatio = remainingQuantity / item.quantity;
+
+    const lineSubtotal = item.price * remainingQuantity;
+
+    const lineTotal = round2(item.itemTotal * remainingRatio);
+
+    const lineDiscount = round2(lineSubtotal - lineTotal);
+
+    const taxAmount = round2(
+      (item.taxAmount || 0) * remainingRatio
+    );
+
+    const itemCouponDiscount = round2(
+      (item.couponShare || 0) * remainingRatio
+    );
+
+    couponDiscount += itemCouponDiscount;
+
+    lines.push({
+      lineSubtotal,
+      lineDiscount,
+      taxAmount,
+    });
+  }
+
+
+  // Use the existing helper to calculate the final totals
+  const totals = calculateTotals(
+    lines,
+    order.shippingFee,
+    round2(couponDiscount)
+  );
+
   order.subtotal = totals.subtotal;
   order.discountTotal = totals.discountTotal;
   order.couponDiscount = totals.couponDiscount;
   order.taxTotal = totals.taxTotal;
   order.totalAmount = totals.totalAmount;
+
   await order.save();
 };
 
-// Cancel `quantity` units of ONE item.
-// The "not more than ordered" check is part of the update itself, so a double click
-// can never cancel more than was ordered or give the stock back twice.
+
+// ==================================================
+// CANCEL A PRODUCT'S QUANTITY
+// ==================================================
+
 const cancelOneItem = async (item, quantity, reason) => {
   const now = new Date();
-  const alreadyCancelled = { $ifNull: ['$cancelledQuantity', 0] };
 
-  const cancelled = await OrderItem.findOneAndUpdate(
+  // Keep this database update atomic.
+  // It prevents cancelling more units than were ordered.
+  // It also prevents two simultaneous requests from cancelling the same units.
+
+  const cancelledQuantity = {
+    $ifNull: ['$cancelledQuantity', 0],
+  };
+
+  const cancelledItem = await OrderItem.findOneAndUpdate(
     {
       _id: item._id,
       status: ITEM_STATUS.PENDING,
-      $expr: { $lte: [{ $add: [alreadyCancelled, quantity] }, '$quantity'] },
+
+      $expr: {
+        $lte: [
+          {
+            $add: [cancelledQuantity, quantity],
+          },
+          '$quantity',
+        ],
+      },
     },
+
     [
-      // 1. add the units to cancelledQuantity
+      // First, update the cancelled quantity
       {
         $set: {
-          cancelledQuantity: { $add: [alreadyCancelled, quantity] },
+          cancelledQuantity: {
+            $add: [cancelledQuantity, quantity],
+          },
+
           cancelReason: reason,
           cancelledAt: now,
         },
       },
-      // 2. all units gone -> CANCELLED, otherwise it stays PENDING; add a history line
+
+      // Then update the status and add to the history
       {
         $set: {
           status: {
-            $cond: [{ $gte: ['$cancelledQuantity', '$quantity'] }, ITEM_STATUS.CANCELLED, '$status'],
+            $cond: [
+              {
+                $gte: ['$cancelledQuantity', '$quantity'],
+              },
+              ITEM_STATUS.CANCELLED,
+              '$status',
+            ],
           },
+
           statusHistory: {
             $concatArrays: [
-              { $ifNull: ['$statusHistory', []] },
+              {
+                $ifNull: ['$statusHistory', []],
+              },
+
               [
                 {
                   status: {
-                    $cond: [{ $gte: ['$cancelledQuantity', '$quantity'] }, ITEM_STATUS.CANCELLED, '$status'],
+                    $cond: [
+                      {
+                        $gte: ['$cancelledQuantity', '$quantity'],
+                      },
+                      ITEM_STATUS.CANCELLED,
+                      '$status',
+                    ],
                   },
+
                   note: reason
                     ? `Cancelled ${quantity} unit(s): ${reason}`
                     : `Cancelled ${quantity} unit(s) by customer`,
+
                   updatedAt: now,
                 },
               ],
@@ -234,28 +460,50 @@ const cancelOneItem = async (item, quantity, reason) => {
         },
       },
     ],
-    { new: true , updatePipeline : true}
-  );
-  if (!cancelled) return false;
 
+    {
+      new: true,
+      updatePipeline: true,
+    }
+  );
+
+
+  // If the update failed, the item could have changed
+  if (!cancelledItem) {
+    return false;
+  }
+
+  // Restore the cancelled units to inventory
   await restoreStock(item.variantId, item.size, quantity);
+
   return true;
 };
 
-// Ask to return `quantity` units of ONE delivered item.
-// The DELIVERED status is checked inside the update, so the same item cannot be requested twice.
-const requestItemReturn = async (item, quantity, reason, note) => {
+
+// ==================================================
+// REQUEST A RETURN FOR A PRODUCT
+// ==================================================
+
+const requestItemReturn = async (item, quantity, reason, description) => {
   const now = new Date();
-  const updated = await OrderItem.findOneAndUpdate(
-    { _id: item._id, status: ITEM_STATUS.DELIVERED },
+
+  // Only delivered items can be returned
+  const updatedItem = await OrderItem.findOneAndUpdate(
+    {
+      _id: item._id,
+      status: ITEM_STATUS.DELIVERED,
+    },
+
     {
       $set: {
         status: ITEM_STATUS.RETURN_REQUESTED,
+
         returnRequestedQuantity: quantity,
         returnReason: reason,
-        returnDescription: note,
+        returnDescription: description,
         returnRequestedAt: now,
       },
+
       $push: {
         statusHistory: {
           status: ITEM_STATUS.RETURN_REQUESTED,
@@ -264,41 +512,110 @@ const requestItemReturn = async (item, quantity, reason, note) => {
         },
       },
     },
-    { new: true }
+
+    {
+      new: true,
+    }
   );
-  return Boolean(updated);
+
+  return Boolean(updatedItem);
 };
 
-// ---------- Public functions ----------
 
-// 1. My orders (newest first) with search + status filter + pagination
-const getMyOrders = async (userId, { search, status, page, limit } = {}) => {
+// ==================================================
+// 1. GET ALL ORDERS FOR THE LOGGED-IN USER
+// ==================================================
+
+const getMyOrders = async (
+  userId,
+  { search, status, page, limit } = {}
+) => {
+  // Prepare pagination
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-  const limitNum = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-  const filter = { userId };
-  if (status && Object.values(ORDER_STATUS).includes(status)) filter.status = status;
+  const limitNum = Math.min(
+    Math.max(parseInt(limit, 10) || DEFAULT_LIMIT, 1),
+    MAX_LIMIT
+  );
 
-  // Search by order number OR by the name of any product in the order
-  const text = search ? String(search).trim() : '';
-  if (text) {
-    const regex = new RegExp(escapeRegex(text), 'i');
-    const matchingItems = await OrderItem.find({ name: regex }).select('orderId');
-    filter.$or = [{ orderNumber: regex }, { _id: { $in: matchingItems.map((i) => i.orderId) } }];
+
+  // Start by finding orders belonging to this user
+  const filter = {
+    userId,
+  };
+
+
+  // Apply the status filter if it is valid
+  if (status && Object.values(ORDER_STATUS).includes(status)) {
+    filter.status = status;
   }
 
+
+  // Search by order number or product name
+  const searchText = search ? String(search).trim() : '';
+
+  if (searchText) {
+    const searchRegex = new RegExp(escapeRegex(searchText), 'i');
+
+    // Find products whose names match the search
+    const matchingItems = await OrderItem.find({
+      name: searchRegex,
+    }).select('orderId');
+
+    const matchingOrderIds = matchingItems.map((item) => {
+      return item.orderId;
+    });
+
+    filter.$or = [
+      {
+        orderNumber: searchRegex,
+      },
+      {
+        _id: {
+          $in: matchingOrderIds,
+        },
+      },
+    ];
+  }
+
+
+  // Count orders before applying pagination
   const totalItems = await Order.countDocuments(filter);
+
+
+  // Fetch the orders for the requested page
   const orders = await Order.find(filter)
     .sort({ createdAt: -1 })
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
-  const items = await OrderItem.find({ orderId: { $in: orders.map((o) => o._id) } });
 
+  // Fetch the items belonging to these orders
+  const orderIds = orders.map((order) => {
+    return order._id;
+  });
+
+  const items = await OrderItem.find({
+    orderId: {
+      $in: orderIds,
+    },
+  });
+
+
+  // Attach the correct items to each order
+  const orderViews = orders.map((order) => {
+    const orderItems = items.filter((item) => {
+      return String(item.orderId) === String(order._id);
+    });
+
+    return toOrderView(order, orderItems);
+  });
+
+
+  // Return the orders and pagination information
   return {
-    orders: orders.map((o) =>
-      toOrderView(o, items.filter((i) => String(i.orderId) === String(o._id)))
-    ),
+    orders: orderViews,
+
     pagination: {
       page: pageNum,
       limit: limitNum,
@@ -308,180 +625,463 @@ const getMyOrders = async (userId, { search, status, page, limit } = {}) => {
   };
 };
 
-// 2. One order
+
+// ==================================================
+// 2. GET ONE ORDER
+// ==================================================
+
 const getMyOrder = async (userId, orderRef) => {
+  // Find the order and confirm that it belongs to the user
   const order = await findUserOrder(userId, orderRef);
-  const items = await OrderItem.find({ orderId: order._id });
+
+  // Find the products in the order
+  const items = await OrderItem.find({
+    orderId: order._id,
+  });
+
+  // Return the order in frontend-friendly format
   return toOrderView(order, items);
 };
 
-// 3. Cancel the whole order (only before it is shipped).
-//    Every pending item is cancelled with all of its remaining units.
+
+// ==================================================
+// 3. CANCEL THE WHOLE ORDER
+// ==================================================
+
 const cancelOrder = async (userId, orderRef, { reason } = {}) => {
-  const cleanReason = cleanCancelReason(reason);
+  const cleanReason = getCancelReason(reason);
+
+  // Find the user's order
   const order = await findUserOrder(userId, orderRef);
 
+
+  // Check whether cancellation is allowed
   if (order.status === ORDER_STATUS.CANCELLED) {
-    throw createError(MESSAGES.ORDER.ORDER_ALREADY_CANCELLED, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
+    throw createError(
+      MESSAGES.ORDER.ORDER_ALREADY_CANCELLED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
   }
+
   if (order.status === ORDER_STATUS.DELIVERED) {
-    throw createError(MESSAGES.ORDER.ORDER_ALREADY_DELIVERED, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
+    throw createError(
+      MESSAGES.ORDER.ORDER_ALREADY_DELIVERED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
   }
+
   if (order.status !== ORDER_STATUS.PENDING) {
-    throw createError(MESSAGES.ORDER.CANNOT_CANCEL_AFTER_SHIPPED, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
+    throw createError(
+      MESSAGES.ORDER.CANNOT_CANCEL_AFTER_SHIPPED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
   }
 
-  const items = await OrderItem.find({ orderId: order._id, status: ITEM_STATUS.PENDING });
+
+  // Find all products that are still pending
+  const items = await OrderItem.find({
+    orderId: order._id,
+    status: ITEM_STATUS.PENDING,
+  });
+
   if (items.length === 0) {
-    throw createError(MESSAGES.ORDER.ALL_ITEMS_ALREADY_CANCELLED, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
+    throw createError(
+      MESSAGES.ORDER.ALL_ITEMS_ALREADY_CANCELLED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
   }
 
+
+  // Cancel the remaining quantity of each product
   for (const item of items) {
-    const qty = remainingQty(item);
-    if (qty > 0) await cancelOneItem(item, qty, cleanReason);
+    const quantity = getRemainingQuantity(item);
+
+    if (quantity > 0) {
+      await cancelOneItem(item, quantity, cleanReason);
+    }
   }
+
+
+  // Update the order's totals and status
   await refreshOrderAfterCancel(order, cleanReason);
 
+  // Return the updated order
   return getMyOrder(userId, order._id);
 };
 
-// 4. Cancel some (or all) units of one product of the order. Quantity is required.
-const cancelOrderItem = async (userId, orderRef, itemId, { quantity, reason } = {}) => {
+
+// ==================================================
+// 4. CANCEL A SINGLE PRODUCT
+// ==================================================
+
+const cancelOrderItem = async (
+  userId,
+  orderRef,
+  itemId,
+  { quantity, reason } = {}
+) => {
+  // Validate the product's order-item ID
   if (!isObjectId(itemId)) {
-    throw createError(MESSAGES.ORDER.INVALID_ITEM_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ITEM_ID);
+    throw createError(
+      MESSAGES.ORDER.INVALID_ITEM_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_ITEM_ID
+    );
   }
-  const qty = cleanQuantity(quantity);
-  const cleanReason = cleanCancelReason(reason);
+
+  const cleanQuantity = getValidQuantity(quantity);
+  const cleanReason = getCancelReason(reason);
+
+  // Find the order
   const order = await findUserOrder(userId, orderRef);
+
 
   if (order.status === ORDER_STATUS.CANCELLED) {
-    throw createError(MESSAGES.ORDER.ORDER_ALREADY_CANCELLED, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
+    throw createError(
+      MESSAGES.ORDER.ORDER_ALREADY_CANCELLED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
   }
 
-  const item = await OrderItem.findOne({ _id: itemId, orderId: order._id });
+
+  // Find the requested product inside this order
+  const item = await OrderItem.findOne({
+    _id: itemId,
+    orderId: order._id,
+  });
+
   if (!item) {
-    throw createError(MESSAGES.ORDER.ITEM_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.ORDER_ITEM_NOT_FOUND);
-  }
-  if (item.status === ITEM_STATUS.CANCELLED) {
-    throw createError(MESSAGES.ORDER.ITEM_ALREADY_CANCELLED, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
-  }
-  if (item.status !== ITEM_STATUS.PENDING) {
-    throw createError(MESSAGES.ORDER.CANNOT_CANCEL_ITEM_AFTER_SHIPPED, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
-  }
-  if (qty > remainingQty(item)) {
-    throw createError(MESSAGES.ORDER.CANCEL_QUANTITY_EXCEEDS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_QUANTITY);
+    throw createError(
+      MESSAGES.ORDER.ITEM_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.ORDER_ITEM_NOT_FOUND
+    );
   }
 
-  const done = await cancelOneItem(item, qty, cleanReason);
-  if (!done) {
-    // Someone else changed the item between our check and the update
-    throw createError(MESSAGES.ORDER.CANCEL_QUANTITY_EXCEEDS, STATUS.CONFLICT, ERROR_CODES.CANCEL_NOT_ALLOWED);
+
+  // Check the product's current status
+  if (item.status === ITEM_STATUS.CANCELLED) {
+    throw createError(
+      MESSAGES.ORDER.ITEM_ALREADY_CANCELLED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
   }
+
+  if (item.status !== ITEM_STATUS.PENDING) {
+    throw createError(
+      MESSAGES.ORDER.CANNOT_CANCEL_ITEM_AFTER_SHIPPED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
+  }
+
+
+  // Make sure the customer is not cancelling too many units
+  const remainingQuantity = getRemainingQuantity(item);
+
+  if (cleanQuantity > remainingQuantity) {
+    throw createError(
+      MESSAGES.ORDER.CANCEL_QUANTITY_EXCEEDS,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_QUANTITY
+    );
+  }
+
+
+  // Perform the cancellation
+  const cancelled = await cancelOneItem(
+    item,
+    cleanQuantity,
+    cleanReason
+  );
+
+  if (!cancelled) {
+    throw createError(
+      MESSAGES.ORDER.CANCEL_QUANTITY_EXCEEDS,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
+  }
+
+
+  // Recalculate the order's price
   await refreshOrderAfterCancel(order, cleanReason);
 
+  // Return the updated order
   return getMyOrder(userId, order._id);
 };
 
-// 5. Return the whole delivered order (or only some of its items) in full. Reason is mandatory.
-//    Every chosen item is returned with all of its returnable units.
-const returnOrder = async (userId, orderRef, { reason, description, itemIds } = {}) => {
-  const cleanReason = cleanReturnReason(reason);
-  const note = description ? String(description).trim().slice(0, 500) : null;
 
+// ==================================================
+// 5. RETURN PRODUCTS FROM AN ORDER
+// ==================================================
+
+const returnOrder = async (
+  userId,
+  orderRef,
+  { reason, description, itemIds } = {}
+) => {
+  const cleanReason = getReturnReason(reason);
+  const cleanDescription = getReturnDescription(description);
+
+  // Find the order
   const order = await findUserOrder(userId, orderRef);
+
+
+  // Returns are allowed only after delivery
   if (order.status !== ORDER_STATUS.DELIVERED) {
-    throw createError(MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY, STATUS.BAD_REQUEST, ERROR_CODES.RETURN_NOT_ALLOWED);
+    throw createError(
+      MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_NOT_ALLOWED
+    );
   }
 
-  const filter = { orderId: order._id, status: ITEM_STATUS.DELIVERED };
+
+  // Find delivered products in the order
+  const filter = {
+    orderId: order._id,
+    status: ITEM_STATUS.DELIVERED,
+  };
+
+
+  // If specific products were selected, return only those products
   if (Array.isArray(itemIds) && itemIds.length > 0) {
-    if (!itemIds.every(isObjectId)) {
-      throw createError(MESSAGES.ORDER.INVALID_ITEM_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ITEM_ID);
+    const validItemIds = itemIds.every((id) => isObjectId(id));
+
+    if (!validItemIds) {
+      throw createError(
+        MESSAGES.ORDER.INVALID_ITEM_ID,
+        STATUS.BAD_REQUEST,
+        ERROR_CODES.INVALID_ITEM_ID
+      );
     }
-    filter._id = { $in: itemIds };
+
+    filter._id = {
+      $in: itemIds,
+    };
   }
+
 
   const items = await OrderItem.find(filter);
-  let requested = 0;
+
+  let requestedCount = 0;
+
+
+  // Request returns for the selected products
   for (const item of items) {
-    const qty = returnableQty(item);
-    if (qty > 0 && (await requestItemReturn(item, qty, cleanReason, note))) requested += 1;
+    const quantity = getReturnableQuantity(item);
+
+    if (quantity > 0) {
+      const requested = await requestItemReturn(
+        item,
+        quantity,
+        cleanReason,
+        cleanDescription
+      );
+
+      if (requested) {
+        requestedCount += 1;
+      }
+    }
   }
 
-  if (requested === 0) {
-    throw createError(MESSAGES.ORDER.NO_RETURNABLE_ITEMS, STATUS.BAD_REQUEST, ERROR_CODES.RETURN_NOT_ALLOWED);
+
+  // Make sure at least one product was eligible for return
+  if (requestedCount === 0) {
+    throw createError(
+      MESSAGES.ORDER.NO_RETURNABLE_ITEMS,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_NOT_ALLOWED
+    );
   }
 
+
+  // Return the updated order
   return getMyOrder(userId, order._id);
 };
 
-// 6. Return some (or all) units of one delivered product. Quantity and reason are required.
-const returnOrderItem = async (userId, orderRef, itemId, { quantity, reason, description } = {}) => {
+
+// ==================================================
+// 6. RETURN A SPECIFIC PRODUCT
+// ==================================================
+
+const returnOrderItem = async (
+  userId,
+  orderRef,
+  itemId,
+  { quantity, reason, description } = {}
+) => {
+  // Validate the order-item ID
   if (!isObjectId(itemId)) {
-    throw createError(MESSAGES.ORDER.INVALID_ITEM_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ITEM_ID);
+    throw createError(
+      MESSAGES.ORDER.INVALID_ITEM_ID,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_ITEM_ID
+    );
   }
-  const qty = cleanQuantity(quantity);
-  const cleanReason = cleanReturnReason(reason);
-  const note = description ? String(description).trim().slice(0, 500) : null;
 
+  const cleanQuantity = getValidQuantity(quantity);
+  const cleanReason = getReturnReason(reason);
+  const cleanDescription = getReturnDescription(description);
+
+
+  // Find the order
   const order = await findUserOrder(userId, orderRef);
+
+
+  // The order must have been delivered
   if (order.status !== ORDER_STATUS.DELIVERED) {
-    throw createError(MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY, STATUS.BAD_REQUEST, ERROR_CODES.RETURN_NOT_ALLOWED);
+    throw createError(
+      MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_NOT_ALLOWED
+    );
   }
 
-  const item = await OrderItem.findOne({ _id: itemId, orderId: order._id });
+
+  // Find the selected product in this order
+  const item = await OrderItem.findOne({
+    _id: itemId,
+    orderId: order._id,
+  });
+
   if (!item) {
-    throw createError(MESSAGES.ORDER.ITEM_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.ORDER_ITEM_NOT_FOUND);
+    throw createError(
+      MESSAGES.ORDER.ITEM_NOT_FOUND,
+      STATUS.NOT_FOUND,
+      ERROR_CODES.ORDER_ITEM_NOT_FOUND
+    );
   }
 
-  const maxQty = returnableQty(item);
-  if (maxQty === 0) {
-    throw createError(MESSAGES.ORDER.NO_RETURNABLE_ITEMS, STATUS.BAD_REQUEST, ERROR_CODES.RETURN_NOT_ALLOWED);
-  }
-  if (qty > maxQty) {
-    throw createError(MESSAGES.ORDER.RETURN_QUANTITY_EXCEEDS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_QUANTITY);
+
+  // Check how many units can still be returned
+  const maxReturnQuantity = getReturnableQuantity(item);
+
+  if (maxReturnQuantity === 0) {
+    throw createError(
+      MESSAGES.ORDER.NO_RETURNABLE_ITEMS,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_NOT_ALLOWED
+    );
   }
 
-  const done = await requestItemReturn(item, qty, cleanReason, note);
-  if (!done) {
-    throw createError(MESSAGES.ORDER.NO_RETURNABLE_ITEMS, STATUS.CONFLICT, ERROR_CODES.RETURN_NOT_ALLOWED);
+  if (cleanQuantity > maxReturnQuantity) {
+    throw createError(
+      MESSAGES.ORDER.RETURN_QUANTITY_EXCEEDS,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.INVALID_QUANTITY
+    );
   }
 
+
+  // Create the return request
+  const requested = await requestItemReturn(
+    item,
+    cleanQuantity,
+    cleanReason,
+    cleanDescription
+  );
+
+  if (!requested) {
+    throw createError(
+      MESSAGES.ORDER.NO_RETURNABLE_ITEMS,
+      STATUS.CONFLICT,
+      ERROR_CODES.RETURN_NOT_ALLOWED
+    );
+  }
+
+
+  // Return the updated order
   return getMyOrder(userId, order._id);
 };
 
-// 7. Everything the invoice PDF needs (order must belong to the user and not be cancelled).
-//    Items come back as plain objects with only the units that were NOT cancelled.
-const getInvoiceData = async (userId, orderRef) => {
-  const order = await findUserOrder(userId, orderRef);
-  if (order.status === ORDER_STATUS.CANCELLED) {
-    throw createError(MESSAGES.ORDER.INVOICE_NOT_AVAILABLE_FOR_CANCELLED_ORDER, STATUS.BAD_REQUEST);
-  }
-  const allItems = await OrderItem.find({ orderId: order._id, status: { $ne: ITEM_STATUS.CANCELLED } });
 
-  const items = allItems.map((item) => {
-    const remaining = remainingQty(item);
-    const ratio = remaining / item.quantity;
+// ==================================================
+// 7. GET DATA REQUIRED FOR THE INVOICE
+// ==================================================
+
+const getInvoiceData = async (userId, orderRef) => {
+  // Find the order and verify ownership
+  const order = await findUserOrder(userId, orderRef);
+
+
+  // Cancelled orders cannot have an invoice
+  if (order.status === ORDER_STATUS.CANCELLED) {
+    throw createError(
+      MESSAGES.ORDER.INVOICE_NOT_AVAILABLE_FOR_CANCELLED_ORDER,
+      STATUS.BAD_REQUEST
+    );
+  }
+
+
+  // Find all items that have not been completely cancelled
+  const items = await OrderItem.find({
+    orderId: order._id,
+    status: {
+      $ne: ITEM_STATUS.CANCELLED,
+    },
+  });
+
+
+  // Calculate the quantity and price remaining after cancellations
+  const invoiceItems = items.map((item) => {
+    const remainingQuantity = getRemainingQuantity(item);
+
+    const remainingRatio =
+      item.quantity > 0
+        ? remainingQuantity / item.quantity
+        : 0;
+
+    const remainingTotal = round2(
+      item.itemTotal * remainingRatio
+    );
+
+    const remainingTax = round2(
+      (item.taxAmount || 0) * remainingRatio
+    );
+
     return {
       ...item.toObject(),
-      quantity: remaining,
-      itemTotal: round2(item.itemTotal * ratio),
-      taxAmount: round2((item.taxAmount || 0) * ratio),
+
+      quantity: remainingQuantity,
+      itemTotal: remainingTotal,
+      taxAmount: remainingTax,
     };
   });
 
-  return { order, items };
+
+  // Return the order and its invoice items
+  return {
+    order,
+    items: invoiceItems,
+  };
 };
+
+
+// ==================================================
+// EXPORT SERVICE FUNCTIONS
+// ==================================================
 
 module.exports = {
   getMyOrders,
   getMyOrder,
+
   cancelOrder,
   cancelOrderItem,
+
   returnOrder,
   returnOrderItem,
+
   getInvoiceData,
 
+  // Exported for use elsewhere if required
   toOrderView,
   refreshOrderAfterCancel,
   cancelOneItem,
