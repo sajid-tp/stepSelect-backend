@@ -26,11 +26,7 @@ const STATUS_FLOW = [
   ORDER_STATUS.DELIVERED,
 ];
 
-<<<<<<< HEAD
 const PAYMENT_METHODS = Object.freeze({ COD: 'COD', RAZORPAY: 'RAZORPAY', WALLET: 'WALLET' });
-=======
-const PAYMENT_METHODS = Object.freeze({ COD: 'COD', RAZORPAY: 'RAZORPAY' });
->>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
 const PAYMENT_STATUS = Object.freeze({
   PENDING: 'pending',
   PAID: 'paid',

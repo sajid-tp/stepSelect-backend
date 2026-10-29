@@ -2,10 +2,7 @@ const express = require('express');
 const { protect } = require('../../middleware/authMiddleware');
 const {
   initiate,
-<<<<<<< HEAD
   payWithWallet,
-=======
->>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
   verifyRazorpay,
   reportFailure,
   retry,
@@ -20,10 +17,7 @@ const router = express.Router();
 router.post('/webhook/razorpay', razorpayWebhook);
 
 router.post('/initiate', protect('user'), initiate);
-<<<<<<< HEAD
 router.post('/wallet/pay', protect('user'), payWithWallet);
-=======
->>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
 router.post('/razorpay/verify', protect('user'), verifyRazorpay);
 
 router.get('/:orderNumber/status', protect('user'), getStatus);

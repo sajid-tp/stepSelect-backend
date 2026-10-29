@@ -40,11 +40,7 @@ const orderSchema = new mongoose.Schema(
 
     // Online payment details (stay empty for Cash on Delivery)
     payment: {
-<<<<<<< HEAD
       gateway: { type: String, default: null },          // RAZORPAY | WALLET
-=======
-      gateway: { type: String, default: null },          // RAZORPAY
->>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
       gatewayOrderId: { type: String, default: null },   // id of the order at the gateway
       paymentId: { type: String, default: null },        // payment / capture id after success
       currency: { type: String, default: null },         // currency charged at the gateway
