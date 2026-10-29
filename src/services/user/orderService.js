@@ -24,22 +24,17 @@ const {
 const { releaseCoupon } = require('./couponService');
 
 
-// Default pagination settings
+
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
 
 
-// ==================================================
-// BASIC HELPER FUNCTIONS
-// ==================================================
-
-// Round a number to two decimal places
 const round2 = (number) => {
   return Math.round((Number(number) || 0) * 100) / 100;
 };
 
 
-// Calculate the quantity that has not been cancelled
+
 const getRemainingQuantity = (item) => {
   const cancelledQuantity = item.cancelledQuantity || 0;
 
@@ -47,7 +42,7 @@ const getRemainingQuantity = (item) => {
 };
 
 
-// Calculate how many units can still be returned
+
 const getReturnableQuantity = (item) => {
   if (item.status !== ITEM_STATUS.DELIVERED) {
     return 0;
@@ -66,7 +61,6 @@ const getReturnableQuantity = (item) => {
 };
 
 
-// Find an order that belongs to the logged-in user
 const findUserOrder = async (userId, orderRef) => {
   if (!orderRef) {
     throw createError(
@@ -78,7 +72,7 @@ const findUserOrder = async (userId, orderRef) => {
 
   let order;
 
-  // The user may provide either the MongoDB ID or the order number
+
   if (isObjectId(orderRef)) {
     order = await Order.findOne({
       _id: orderRef,
@@ -103,7 +97,7 @@ const findUserOrder = async (userId, orderRef) => {
 };
 
 
-// Validate the cancellation reason
+
 const getCancelReason = (reason) => {
   if (reason === undefined || reason === null || String(reason).trim() === '') {
     return null;
@@ -122,7 +116,7 @@ const getCancelReason = (reason) => {
 };
 
 
-// Validate the return reason
+
 const getReturnReason = (reason) => {
   if (reason === undefined || reason === null || String(reason).trim() === '') {
     throw createError(
@@ -146,7 +140,7 @@ const getReturnReason = (reason) => {
 };
 
 
-// Validate a requested quantity
+
 const getValidQuantity = (quantity) => {
   const number = Number(quantity);
 
@@ -162,7 +156,6 @@ const getValidQuantity = (quantity) => {
 };
 
 
-// Clean the optional return description
 const getReturnDescription = (description) => {
   if (!description) {
     return null;
@@ -172,11 +165,6 @@ const getReturnDescription = (description) => {
 };
 
 
-// ==================================================
-// FORMAT ORDER DATA FOR THE FRONTEND
-// ==================================================
-
-// Convert one order item into a simple response object
 const toItemView = (item) => {
   const remainingQuantity = getRemainingQuantity(item);
   const returnableQuantity = getReturnableQuantity(item);
@@ -206,7 +194,6 @@ const toItemView = (item) => {
     itemTotal: item.itemTotal,
     status: item.status,
 
-    // Quantity information
     cancelledQuantity: item.cancelledQuantity || 0,
     remainingQuantity,
     remainingTotal: round2(remainingTotal),
@@ -214,11 +201,11 @@ const toItemView = (item) => {
     returnRequestedQuantity: item.returnRequestedQuantity || 0,
     returnedQuantity: item.returnedQuantity || 0,
 
-    // Cancellation information
+  
     cancelReason: item.cancelReason,
     cancelledAt: item.cancelledAt,
 
-    // Return information
+   
     returnReason: item.returnReason,
     returnDescription: item.returnDescription,
     returnRequestedAt: item.returnRequestedAt,
@@ -227,7 +214,7 @@ const toItemView = (item) => {
 
     statusHistory: item.statusHistory,
 
-    // Actions available to the customer
+
     canCancel:
       item.status === ITEM_STATUS.PENDING &&
       remainingQuantity > 0,
@@ -243,7 +230,7 @@ const toItemView = (item) => {
 };
 
 
-// Convert an order and its items into the frontend response
+
 const toOrderView = (order, items) => {
   const itemViews = items.map((item) => {
     return toItemView(item);
@@ -290,22 +277,16 @@ const toOrderView = (order, items) => {
 };
 
 
-// ==================================================
-// UPDATE ORDER TOTALS AFTER CANCELLATION
-// ==================================================
-
 const refreshOrderAfterCancel = async (order, reason) => {
   const items = await OrderItem.find({
     orderId: order._id,
   });
 
-  // Keep items that still have at least one uncancelled unit
   const activeItems = items.filter((item) => {
     return getRemainingQuantity(item) > 0;
   });
 
 
-  // If every item is cancelled, cancel the whole order
   if (activeItems.length === 0) {
     order.status = ORDER_STATUS.CANCELLED;
     order.cancelledAt = new Date();
@@ -316,21 +297,18 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
     await order.save();
 
-    // Restore the coupon usage because the whole order was cancelled
     await releaseCoupon(order.couponId);
 
     return;
   }
 
-
-  // Recalculate the totals for the remaining quantities
   const lines = [];
   let couponDiscount = 0;
 
   for (const item of activeItems) {
     const remainingQuantity = getRemainingQuantity(item);
 
-    // Calculate the proportion of the item that remains
+
     const remainingRatio = remainingQuantity / item.quantity;
 
     const lineSubtotal = item.price * remainingQuantity;
@@ -357,7 +335,6 @@ const refreshOrderAfterCancel = async (order, reason) => {
   }
 
 
-  // Use the existing helper to calculate the final totals
   const totals = calculateTotals(
     lines,
     order.shippingFee,
@@ -374,16 +351,8 @@ const refreshOrderAfterCancel = async (order, reason) => {
 };
 
 
-// ==================================================
-// CANCEL A PRODUCT'S QUANTITY
-// ==================================================
-
 const cancelOneItem = async (item, quantity, reason) => {
   const now = new Date();
-
-  // Keep this database update atomic.
-  // It prevents cancelling more units than were ordered.
-  // It also prevents two simultaneous requests from cancelling the same units.
 
   const cancelledQuantity = {
     $ifNull: ['$cancelledQuantity', 0],
@@ -405,7 +374,7 @@ const cancelOneItem = async (item, quantity, reason) => {
     },
 
     [
-      // First, update the cancelled quantity
+ 
       {
         $set: {
           cancelledQuantity: {
@@ -417,7 +386,7 @@ const cancelOneItem = async (item, quantity, reason) => {
         },
       },
 
-      // Then update the status and add to the history
+   
       {
         $set: {
           status: {
@@ -468,26 +437,22 @@ const cancelOneItem = async (item, quantity, reason) => {
   );
 
 
-  // If the update failed, the item could have changed
+
   if (!cancelledItem) {
     return false;
   }
 
-  // Restore the cancelled units to inventory
+
   await restoreStock(item.variantId, item.size, quantity);
 
   return true;
 };
 
 
-// ==================================================
-// REQUEST A RETURN FOR A PRODUCT
-// ==================================================
-
 const requestItemReturn = async (item, quantity, reason, description) => {
   const now = new Date();
 
-  // Only delivered items can be returned
+
   const updatedItem = await OrderItem.findOneAndUpdate(
     {
       _id: item._id,
@@ -521,16 +486,11 @@ const requestItemReturn = async (item, quantity, reason, description) => {
   return Boolean(updatedItem);
 };
 
-
-// ==================================================
-// 1. GET ALL ORDERS FOR THE LOGGED-IN USER
-// ==================================================
-
 const getMyOrders = async (
   userId,
   { search, status, page, limit } = {}
 ) => {
-  // Prepare pagination
+
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
 
   const limitNum = Math.min(
@@ -538,26 +498,20 @@ const getMyOrders = async (
     MAX_LIMIT
   );
 
-
-  // Start by finding orders belonging to this user
   const filter = {
     userId,
   };
 
 
-  // Apply the status filter if it is valid
   if (status && Object.values(ORDER_STATUS).includes(status)) {
     filter.status = status;
   }
 
-
-  // Search by order number or product name
   const searchText = search ? String(search).trim() : '';
 
   if (searchText) {
     const searchRegex = new RegExp(escapeRegex(searchText), 'i');
 
-    // Find products whose names match the search
     const matchingItems = await OrderItem.find({
       name: searchRegex,
     }).select('orderId');
@@ -578,19 +532,13 @@ const getMyOrders = async (
     ];
   }
 
-
-  // Count orders before applying pagination
   const totalItems = await Order.countDocuments(filter);
 
-
-  // Fetch the orders for the requested page
   const orders = await Order.find(filter)
     .sort({ createdAt: -1 })
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
-
-  // Fetch the items belonging to these orders
   const orderIds = orders.map((order) => {
     return order._id;
   });
@@ -601,8 +549,6 @@ const getMyOrders = async (
     },
   });
 
-
-  // Attach the correct items to each order
   const orderViews = orders.map((order) => {
     const orderItems = items.filter((item) => {
       return String(item.orderId) === String(order._id);
@@ -611,8 +557,6 @@ const getMyOrders = async (
     return toOrderView(order, orderItems);
   });
 
-
-  // Return the orders and pagination information
   return {
     orders: orderViews,
 
@@ -625,37 +569,22 @@ const getMyOrders = async (
   };
 };
 
-
-// ==================================================
-// 2. GET ONE ORDER
-// ==================================================
-
 const getMyOrder = async (userId, orderRef) => {
-  // Find the order and confirm that it belongs to the user
+
   const order = await findUserOrder(userId, orderRef);
 
-  // Find the products in the order
   const items = await OrderItem.find({
     orderId: order._id,
   });
 
-  // Return the order in frontend-friendly format
   return toOrderView(order, items);
 };
-
-
-// ==================================================
-// 3. CANCEL THE WHOLE ORDER
-// ==================================================
 
 const cancelOrder = async (userId, orderRef, { reason } = {}) => {
   const cleanReason = getCancelReason(reason);
 
-  // Find the user's order
   const order = await findUserOrder(userId, orderRef);
 
-
-  // Check whether cancellation is allowed
   if (order.status === ORDER_STATUS.CANCELLED) {
     throw createError(
       MESSAGES.ORDER.ORDER_ALREADY_CANCELLED,
@@ -680,8 +609,6 @@ const cancelOrder = async (userId, orderRef, { reason } = {}) => {
     );
   }
 
-
-  // Find all products that are still pending
   const items = await OrderItem.find({
     orderId: order._id,
     status: ITEM_STATUS.PENDING,
@@ -695,8 +622,6 @@ const cancelOrder = async (userId, orderRef, { reason } = {}) => {
     );
   }
 
-
-  // Cancel the remaining quantity of each product
   for (const item of items) {
     const quantity = getRemainingQuantity(item);
 
@@ -705,18 +630,10 @@ const cancelOrder = async (userId, orderRef, { reason } = {}) => {
     }
   }
 
-
-  // Update the order's totals and status
   await refreshOrderAfterCancel(order, cleanReason);
 
-  // Return the updated order
   return getMyOrder(userId, order._id);
 };
-
-
-// ==================================================
-// 4. CANCEL A SINGLE PRODUCT
-// ==================================================
 
 const cancelOrderItem = async (
   userId,
@@ -724,7 +641,7 @@ const cancelOrderItem = async (
   itemId,
   { quantity, reason } = {}
 ) => {
-  // Validate the product's order-item ID
+
   if (!isObjectId(itemId)) {
     throw createError(
       MESSAGES.ORDER.INVALID_ITEM_ID,
@@ -736,7 +653,7 @@ const cancelOrderItem = async (
   const cleanQuantity = getValidQuantity(quantity);
   const cleanReason = getCancelReason(reason);
 
-  // Find the order
+
   const order = await findUserOrder(userId, orderRef);
 
 
@@ -748,8 +665,6 @@ const cancelOrderItem = async (
     );
   }
 
-
-  // Find the requested product inside this order
   const item = await OrderItem.findOne({
     _id: itemId,
     orderId: order._id,
@@ -763,8 +678,6 @@ const cancelOrderItem = async (
     );
   }
 
-
-  // Check the product's current status
   if (item.status === ITEM_STATUS.CANCELLED) {
     throw createError(
       MESSAGES.ORDER.ITEM_ALREADY_CANCELLED,
@@ -781,8 +694,6 @@ const cancelOrderItem = async (
     );
   }
 
-
-  // Make sure the customer is not cancelling too many units
   const remainingQuantity = getRemainingQuantity(item);
 
   if (cleanQuantity > remainingQuantity) {
@@ -793,8 +704,6 @@ const cancelOrderItem = async (
     );
   }
 
-
-  // Perform the cancellation
   const cancelled = await cancelOneItem(
     item,
     cleanQuantity,
@@ -809,18 +718,10 @@ const cancelOrderItem = async (
     );
   }
 
-
-  // Recalculate the order's price
   await refreshOrderAfterCancel(order, cleanReason);
 
-  // Return the updated order
   return getMyOrder(userId, order._id);
 };
-
-
-// ==================================================
-// 5. RETURN PRODUCTS FROM AN ORDER
-// ==================================================
 
 const returnOrder = async (
   userId,
@@ -830,11 +731,8 @@ const returnOrder = async (
   const cleanReason = getReturnReason(reason);
   const cleanDescription = getReturnDescription(description);
 
-  // Find the order
   const order = await findUserOrder(userId, orderRef);
 
-
-  // Returns are allowed only after delivery
   if (order.status !== ORDER_STATUS.DELIVERED) {
     throw createError(
       MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
@@ -843,15 +741,12 @@ const returnOrder = async (
     );
   }
 
-
-  // Find delivered products in the order
   const filter = {
     orderId: order._id,
     status: ITEM_STATUS.DELIVERED,
   };
 
 
-  // If specific products were selected, return only those products
   if (Array.isArray(itemIds) && itemIds.length > 0) {
     const validItemIds = itemIds.every((id) => isObjectId(id));
 
@@ -874,7 +769,7 @@ const returnOrder = async (
   let requestedCount = 0;
 
 
-  // Request returns for the selected products
+
   for (const item of items) {
     const quantity = getReturnableQuantity(item);
 
@@ -892,8 +787,6 @@ const returnOrder = async (
     }
   }
 
-
-  // Make sure at least one product was eligible for return
   if (requestedCount === 0) {
     throw createError(
       MESSAGES.ORDER.NO_RETURNABLE_ITEMS,
@@ -902,15 +795,9 @@ const returnOrder = async (
     );
   }
 
-
-  // Return the updated order
   return getMyOrder(userId, order._id);
 };
 
-
-// ==================================================
-// 6. RETURN A SPECIFIC PRODUCT
-// ==================================================
 
 const returnOrderItem = async (
   userId,
@@ -918,7 +805,7 @@ const returnOrderItem = async (
   itemId,
   { quantity, reason, description } = {}
 ) => {
-  // Validate the order-item ID
+
   if (!isObjectId(itemId)) {
     throw createError(
       MESSAGES.ORDER.INVALID_ITEM_ID,
@@ -931,12 +818,8 @@ const returnOrderItem = async (
   const cleanReason = getReturnReason(reason);
   const cleanDescription = getReturnDescription(description);
 
-
-  // Find the order
   const order = await findUserOrder(userId, orderRef);
 
-
-  // The order must have been delivered
   if (order.status !== ORDER_STATUS.DELIVERED) {
     throw createError(
       MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
@@ -945,8 +828,6 @@ const returnOrderItem = async (
     );
   }
 
-
-  // Find the selected product in this order
   const item = await OrderItem.findOne({
     _id: itemId,
     orderId: order._id,
@@ -960,8 +841,6 @@ const returnOrderItem = async (
     );
   }
 
-
-  // Check how many units can still be returned
   const maxReturnQuantity = getReturnableQuantity(item);
 
   if (maxReturnQuantity === 0) {
@@ -980,8 +859,6 @@ const returnOrderItem = async (
     );
   }
 
-
-  // Create the return request
   const requested = await requestItemReturn(
     item,
     cleanQuantity,
@@ -997,22 +874,14 @@ const returnOrderItem = async (
     );
   }
 
-
-  // Return the updated order
   return getMyOrder(userId, order._id);
 };
 
 
-// ==================================================
-// 7. GET DATA REQUIRED FOR THE INVOICE
-// ==================================================
-
 const getInvoiceData = async (userId, orderRef) => {
-  // Find the order and verify ownership
+
   const order = await findUserOrder(userId, orderRef);
 
-
-  // Cancelled orders cannot have an invoice
   if (order.status === ORDER_STATUS.CANCELLED) {
     throw createError(
       MESSAGES.ORDER.INVOICE_NOT_AVAILABLE_FOR_CANCELLED_ORDER,
@@ -1020,8 +889,6 @@ const getInvoiceData = async (userId, orderRef) => {
     );
   }
 
-
-  // Find all items that have not been completely cancelled
   const items = await OrderItem.find({
     orderId: order._id,
     status: {
@@ -1030,7 +897,6 @@ const getInvoiceData = async (userId, orderRef) => {
   });
 
 
-  // Calculate the quantity and price remaining after cancellations
   const invoiceItems = items.map((item) => {
     const remainingQuantity = getRemainingQuantity(item);
 
@@ -1056,18 +922,11 @@ const getInvoiceData = async (userId, orderRef) => {
     };
   });
 
-
-  // Return the order and its invoice items
   return {
     order,
     items: invoiceItems,
   };
 };
-
-
-// ==================================================
-// EXPORT SERVICE FUNCTIONS
-// ==================================================
 
 module.exports = {
   getMyOrders,
@@ -1081,7 +940,6 @@ module.exports = {
 
   getInvoiceData,
 
-  // Exported for use elsewhere if required
   toOrderView,
   refreshOrderAfterCancel,
   cancelOneItem,

@@ -44,13 +44,12 @@ const couponSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    // Maximum number of successful orders that may redeem this coupon. null = unlimited.
     redemptionLimit: {
       type: Number,
       min: [1, 'Redemption limit must be at least 1'],
       default: null,
     },
-    // Maximum successful redemptions per user. Defaults to one use per customer.
+
     usageLimitPerUser: {
       type: Number,
       min: [1, 'Per-user usage limit must be at least 1'],

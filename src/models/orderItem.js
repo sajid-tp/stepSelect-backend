@@ -10,29 +10,27 @@ const statusHistorySchema = new mongoose.Schema(
   { _id: false }
 );
 
-// One order line = one variant (colour) + one size, with a SNAPSHOT of what the user saw
-// when buying. Later edits to the product never change old orders.
+
 const orderItemSchema = new mongoose.Schema(
   {
     orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', required: true, index: true },
     productId: { type: mongoose.Schema.Types.ObjectId, ref: 'product', required: true },
     variantId: { type: mongoose.Schema.Types.ObjectId, ref: 'variant', required: true },
 
-    // Snapshot fields
+
     name: { type: String, required: true },
     color: { type: String, default: '' },
     size: { type: String, required: true },
     image: { type: String, default: null },
-    price: { type: Number, required: true, min: 0 },          // original unit price
+    price: { type: Number, required: true, min: 0 },          
     discountPercent: { type: Number, default: 0, min: 0, max: 100 },
-    finalPrice: { type: Number, required: true, min: 0 },    // unit price after discount
+    finalPrice: { type: Number, required: true, min: 0 },   
     quantity: { type: Number, required: true, min: 1 },
 
-    // Money for the whole line (final price x quantity, and its share of tax)
+    
     itemTotal: { type: Number, required: true, min: 0 },
     taxAmount: { type: Number, default: 0, min: 0 },
-    // This line's share of the order's coupon discount. Used to keep the order total correct
-    // when single items are cancelled.
+    
     couponShare: { type: Number, default: 0, min: 0 },
 
     status: { type: String, enum: Object.values(ITEM_STATUS), default: ITEM_STATUS.PENDING },
@@ -48,10 +46,9 @@ const orderItemSchema = new mongoose.Schema(
     returnReason: { type: String, default: null },
     returnDescription: { type: String, default: null },
     returnRequestedAt: { type: Date, default: null },
-    // Units the customer asked to return (was missing before, so Mongoose silently dropped it)
+    
     returnRequestedQuantity: { type: Number, default: 0 },
 
-    // Filled when the admin rejects a return request
     returnRejectReason: { type: String, default: null },
     returnRejectedAt: { type: Date, default: null },
   },

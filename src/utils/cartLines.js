@@ -1,6 +1,4 @@
-// src/utils/cartLines.js
-// Turns the cart (which only stores pointers: variantId + size + quantity) into priced lines.
-// Shared by the checkout service and the coupon service so both always see the same prices.
+
 const Variant = require('../models/variants');
 const Product = require('../models/products');
 const Category = require('../models/categories');
@@ -9,8 +7,6 @@ const { calculateLine, firstImage } = require('./orderHelpers');
 
 const isVisible = (doc) => Boolean(doc && doc.isActive && !doc.deletedAt);
 
-// Prices ALWAYS come from the database, never from the frontend.
-// Each line has an `issue` flag (UNAVAILABLE / OUT_OF_STOCK / INSUFFICIENT_STOCK / null).
 const buildLines = async (cart) => {
   if (!cart || cart.items.length === 0) return [];
 

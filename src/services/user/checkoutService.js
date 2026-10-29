@@ -1,4 +1,4 @@
-// src/services/user/checkoutService.js
+
 const Cart = require('../../models/cart');
 const Wishlist = require('../../models/wishlist');
 const Address = require('../../models/address');
@@ -26,7 +26,6 @@ const {
 const { buildLines } = require('../../utils/cartLines');
 const couponService = require('./couponService');
 
-// 1. Checkout summary: addresses + priced items + totals
 const getCheckoutSummary = async (userId) => {
   const [cart, addresses] = await Promise.all([
     Cart.findOne({ userId }),
@@ -36,12 +35,11 @@ const getCheckoutSummary = async (userId) => {
   const lines = await buildLines(cart);
   const buyable = lines.filter((l) => !l.issue);
 
-  // Re-check the coupon saved on the cart against the CURRENT cart (items may have changed)
   const base = buyable.reduce((sum, l) => sum + l.itemTotal, 0);
   const applied = await couponService.resolveAppliedCoupon(userId, cart, base);
   let couponMessage = null;
   if (applied.invalid) {
-    await couponService.clearAppliedCoupon(userId); // stale coupon: drop it so the page and the order agree
+    await couponService.clearAppliedCoupon(userId);
     couponMessage = MESSAGES.COUPON.COUPON_REMOVED_FROM_CART(applied.invalid.message);
   }
 
@@ -68,7 +66,7 @@ const getCheckoutSummary = async (userId) => {
       issue: l.issue,
     })),
     pricing: { ...totals, taxPercent: PRICING.TAX_PERCENT },
-    // null when no coupon is applied
+  
     coupon: applied.coupon
       ? {
           id: String(applied.coupon._id),
@@ -78,14 +76,14 @@ const getCheckoutSummary = async (userId) => {
           discountAmount: totals.couponDiscount,
         }
       : null,
-    couponMessage, // set only when an applied coupon had to be removed (explain it to the user)
+    couponMessage, 
     paymentMethods: [PAYMENT_METHODS.COD],
-    // The page should disable "Place order" unless this is true
+
     canPlaceOrder: lines.length > 0 && buyable.length === lines.length && addresses.length > 0,
   };
 };
 
-// Internal Helper: stop with a clear message if any line cannot be bought
+
 const assertLinesBuyable = (lines) => {
   for (const l of lines) {
     if (l.issue === 'UNAVAILABLE') {
@@ -100,7 +98,6 @@ const assertLinesBuyable = (lines) => {
   }
 };
 
-// Internal Helper: give stock back for lines we already took it from
 const rollbackStock = async (taken) => {
   for (const t of taken) {
     try {
@@ -111,13 +108,13 @@ const rollbackStock = async (taken) => {
   }
 };
 
-// 2. Place order (Cash on Delivery)
+
 const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
   if (paymentMethod && paymentMethod !== PAYMENT_METHODS.COD) {
     throw createError(MESSAGES.CHECKOUT.ONLY_COD_IS_AVAILABLE, STATUS.BAD_REQUEST);
   }
 
-  // Address: the one chosen, or the default one
+
   let address;
   if (addressId) {
     if (!isObjectId(addressId)) {
@@ -142,17 +139,16 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
   const lines = await buildLines(cart);
   assertLinesBuyable(lines);
 
-  // Coupon: the one saved on the cart, re-checked right now. The frontend cannot choose a discount.
   const base = lines.reduce((sum, l) => sum + l.itemTotal, 0);
   const applied = await couponService.resolveAppliedCoupon(userId, cart, base);
   if (applied.invalid) {
-    await couponService.clearAppliedCoupon(userId); // so the user can simply try again without it
+    await couponService.clearAppliedCoupon(userId);
     throw createError(applied.invalid.message, STATUS.BAD_REQUEST, applied.invalid.code);
   }
   const coupon = applied.coupon;
   const totals = calculateTotals(lines, undefined, applied.discount);
 
-  // Take stock line by line. If any line fails (someone bought it a moment ago), give back what we took.
+
   const taken = [];
   for (const l of lines) {
     const ok = await reduceStock(l.variantId, l.size, l.quantity);
@@ -163,7 +159,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
     taken.push(l);
   }
 
-  // Count the coupon use (atomic, so the last redemption can only go to one order)
+
   let couponRedeemed = false;
   if (coupon) {
     couponRedeemed = await couponService.redeemCoupon(coupon._id);
@@ -175,7 +171,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
   }
   const couponShares = allocateCouponShares(lines, totals.couponDiscount);
 
-  // Create the order. The order number is random, so on the rare duplicate we just try again.
+
   let order = null;
   try {
     for (let attempt = 0; attempt < 5 && !order; attempt++) {
@@ -201,7 +197,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
           paymentStatus: PAYMENT_STATUS.PENDING,
         });
       } catch (err) {
-        if (err.code !== 11000) throw err; // only retry duplicate order numbers
+        if (err.code !== 11000) throw err; 
       }
     }
     if (!order) throw new Error('Could not generate a unique order number');
@@ -227,7 +223,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
       }))
     );
   } catch (err) {
-    // Something broke after stock was taken: undo everything so no stock or coupon use is lost
+  
     await rollbackStock(taken);
     if (couponRedeemed) await couponService.releaseCoupon(coupon._id);
     if (order) {
@@ -237,7 +233,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
     throw err;
   }
 
-  // The order is placed. Cleaning up cart and wishlist must never fail the order.
+
   try {
     await Cart.updateOne({ userId }, { $set: { items: [], couponId: null } });
     await Wishlist.updateOne(

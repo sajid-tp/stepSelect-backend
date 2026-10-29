@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { ORDER_STATUS, PAYMENT_METHODS, PAYMENT_STATUS } = require('../constants/orderConstants');
 
-// Copy of the address at the time of ordering (the user may edit/delete the address later)
+
 const shippingAddressSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -18,22 +18,21 @@ const shippingAddressSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    // Readable unique ID shown to the user, e.g. ORD-20261020-A3F9C2
+   
     orderNumber: { type: String, required: true, unique: true, index: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
 
     shippingAddress: { type: shippingAddressSchema, required: true },
 
-    // Money. These are recalculated from the active (non-cancelled) items when an item is cancelled.
-    subtotal: { type: Number, required: true, min: 0 },       // sum of original price x qty
+   
+    subtotal: { type: Number, required: true, min: 0 },       
     discountTotal: { type: Number, default: 0, min: 0 },
     taxTotal: { type: Number, default: 0, min: 0 },
     shippingFee: { type: Number, default: 0, min: 0 },
-    totalAmount: { type: Number, required: true, min: 0 },    // what the customer pays
-
+    totalAmount: { type: Number, required: true, min: 0 },   
     couponId: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon', default: null },
-    couponCode: { type: String, default: null },                // snapshot, the coupon may be edited/deleted later
-    couponDiscount: { type: Number, default: 0, min: 0 },       // money taken off by the coupon (on top of discountTotal)
+    couponCode: { type: String, default: null },               
+    couponDiscount: { type: Number, default: 0, min: 0 },       
 
     status: { type: String, enum: Object.values(ORDER_STATUS), default: ORDER_STATUS.PENDING, index: true },
     paymentMethod: { type: String, enum: Object.values(PAYMENT_METHODS), default: PAYMENT_METHODS.COD },

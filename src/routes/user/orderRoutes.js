@@ -5,7 +5,6 @@ const {
   getMyOrders,
   getReasons,
   getMyOrder,
-  getOrderSummary,
   cancelOrder,
   cancelOrderItem,
   returnOrder,
@@ -15,10 +14,10 @@ const {
 
 const router = express.Router();
 
-router.post('/cod', protect('user'), placeOrder); // Place Order: Cash on Delivery
+router.post('/cod', protect('user'), placeOrder); 
 router.get('/', protect('user'), getMyOrders);
-router.get('/reasons', protect('user'), getReasons); // keep above '/:orderId'
-router.get('/:orderId/summary', protect('user'), getOrderSummary);
+router.get('/reasons', protect('user'), getReasons); 
+
 router.get('/:orderId', protect('user'), getMyOrder);
 router.get('/:orderId/invoice', protect('user'), downloadInvoice);
 router.post('/:orderId/cancel', protect('user'), cancelOrder);

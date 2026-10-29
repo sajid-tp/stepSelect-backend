@@ -20,18 +20,29 @@ const getUsers = async ({ search, page = 1, limit = 10 ,sort}) => {
     const regex = new RegExp(search, 'i');
     filter.$or = [{ username: regex }, { email: regex }];
   }
+  
 
+  
   // Count total matches
   const totalResults = await User.countDocuments(filter);
   const totalPages = Math.ceil(totalResults / limitNum) || 1;
 
-  // Fetch paginated documents
+
   const users = await User.find(filter)
     .select('username email createdAt isBlocked')
     .sort({ username: 1 })
     .collation({ locale: 'en', strength: 1 })
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
+
+  const count = users.map(async (u) => {
+
+    const addressCount = await Address.countDocuments({
+
+      user : u.user
+
+    })
+  })
 
   const formattedUsers = users.map((u) => ({
     id: u._id,

@@ -19,8 +19,7 @@ const cartSchema = new mongoose.Schema(
       unique: true,
     },
     items: { type: [cartItemSchema], default: [] },
-    // Coupon the user selected at checkout. Only the id is stored: the discount is
-    // recalculated from the live cart every time, so it can never go out of date.
+
     couponId: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon', default: null },
   },
   { timestamps: true }

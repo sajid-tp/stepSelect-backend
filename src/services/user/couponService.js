@@ -1,13 +1,4 @@
-// src/services/user/couponService.js
-// User side of coupons: list the coupons a user can pick, apply one to the cart, remove it.
-// The checkout service also uses the helpers at the bottom (resolveAppliedCoupon, redeemCoupon, ...).
-//
-// Rules in one place:
-//   * The coupon is stored on the cart (cart.couponId), NOT trusted from the frontend.
-//   * The discount is recalculated from the live cart every time, so it can never go stale.
-//   * The discount is taken from the amount AFTER the product discounts (sum of itemTotal).
-//   * Only one coupon at a time. Applying a new one replaces the old one.
-//   * usedCount goes up only when an order is really placed (see redeemCoupon).
+
 const mongoose = require('mongoose');
 const Cart = require('../../models/cart');
 const Coupon = require('../../models/coupon');
@@ -20,9 +11,6 @@ const { ORDER_STATUS } = require('../../constants/orderConstants');
 const { buildLines } = require('../../utils/cartLines');
 const { calculateTotals, calculateCouponDiscount } = require('../../utils/orderHelpers');
 
-// ---------- Internal helpers ----------
-
-// Coupons that are live right now (not deleted, active, started, not expired, global limit not reached)
 const liveCouponFilter = (now = new Date()) => ({
   deletedAt: null,
   isActive: true,
@@ -30,7 +18,7 @@ const liveCouponFilter = (now = new Date()) => ({
     { $or: [{ startDate: null }, { startDate: { $lte: now } }] },
     { $or: [{ expiryDate: null }, { expiryDate: { $gte: now } }] },
     {
-      // redemptionLimit null/missing = unlimited
+     
       $expr: {
         $or: [
           { $not: [{ $gt: ['$redemptionLimit', 0] }] },
@@ -41,7 +29,7 @@ const liveCouponFilter = (now = new Date()) => ({
   ],
 });
 
-// How many times this user already used each coupon (cancelled orders do not count)
+
 const getUserUsage = async (userId, couponIds = null) => {
   const match = {
     userId: new mongoose.Types.ObjectId(String(userId)),
@@ -55,7 +43,7 @@ const getUserUsage = async (userId, couponIds = null) => {
   return new Map(rows.map((r) => [String(r._id), r.count]));
 };
 
-// Amount the coupon is calculated on: the buyable cart lines after product discounts
+
 const getCartPricing = async (userId) => {
   const cart = await Cart.findOne({ userId });
   const lines = await buildLines(cart);
@@ -68,9 +56,7 @@ const clearAppliedCoupon = async (userId) => {
   await Cart.updateOne({ userId }, { $set: { couponId: null } });
 };
 
-// ---------- Validation (throws a coded error when the coupon cannot be used) ----------
 
-// `usedByUser` can be passed in when the caller already has it (the list endpoint does).
 const assertCouponUsable = async (coupon, { userId, base, usedByUser, now = new Date() }) => {
   if (!coupon || coupon.deletedAt) {
     throw createError(MESSAGES.COUPON.COUPON_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.COUPON_NOT_FOUND);
@@ -110,16 +96,14 @@ const assertCouponUsable = async (coupon, { userId, base, usedByUser, now = new 
   }
 };
 
-// ---------- Public functions (the 3 user endpoints) ----------
 
-// 1. GET /api/coupons : coupons shown behind the "Have a coupon?" control at checkout
 const getAvailableCoupons = async (userId) => {
   const [coupons, { cart, base }] = await Promise.all([
     Coupon.find(liveCouponFilter()).sort({ createdAt: -1, _id: -1 }),
     getCartPricing(userId),
   ]);
 
-  // Hide coupons this user has already used up
+
   const usage = await getUserUsage(userId, coupons.map((c) => c._id));
   const appliedId = cart && cart.couponId ? String(cart.couponId) : null;
 
@@ -137,7 +121,7 @@ const getAvailableCoupons = async (userId) => {
         minimumPurchase: minimum,
         maximumDiscount: c.maximumDiscount,
         expiryDate: c.expiryDate,
-        // Extra fields so the page can grey out coupons the cart does not qualify for yet
+      
         isApplicable,
         amountNeeded: isApplicable ? 0 : Math.max(Math.ceil(minimum - base), 0),
         estimatedDiscount: isApplicable ? calculateCouponDiscount(c, base) : 0,
@@ -148,7 +132,7 @@ const getAvailableCoupons = async (userId) => {
   return { coupons: available };
 };
 
-// 2. POST /api/cart/apply-coupon  body: { couponCode }
+
 const applyCoupon = async (userId, couponCode) => {
   const code = typeof couponCode === 'string' ? couponCode.trim().toUpperCase() : '';
   if (!code) {
@@ -166,7 +150,7 @@ const applyCoupon = async (userId, couponCode) => {
   const discountAmount = calculateCouponDiscount(coupon, base);
   const totals = calculateTotals(buyable, undefined, discountAmount);
 
-  // Saved on the cart so the checkout page and "place order" use the same coupon
+
   await Cart.updateOne({ userId }, { $set: { couponId: coupon._id } });
 
   return {
@@ -175,12 +159,12 @@ const applyCoupon = async (userId, couponCode) => {
     discountType: coupon.discountType,
     discountValue: coupon.discountValue,
     discountAmount,
-    subtotal: totals.subtotal - totals.discountTotal, // cart amount before the coupon
+    subtotal: totals.subtotal - totals.discountTotal, 
     newTotal: totals.totalAmount,
   };
 };
 
-// 3. DELETE /api/cart/coupon
+
 const removeCoupon = async (userId) => {
   await clearAppliedCoupon(userId);
 
@@ -189,14 +173,7 @@ const removeCoupon = async (userId) => {
   return { message: MESSAGES.COUPON.COUPON_REMOVED, newTotal: totals.totalAmount };
 };
 
-// ---------- Helpers used by the checkout service ----------
 
-// Looks at the coupon saved on the cart and re-checks it against the CURRENT cart.
-// Returns { coupon, discount, invalid }:
-//   no coupon on the cart      -> { coupon: null, discount: 0, invalid: null }
-//   coupon still valid         -> { coupon, discount, invalid: null }
-//   coupon no longer valid     -> { coupon: null, discount: 0, invalid: { code, message } }
-//   (e.g. an item was removed and the cart is now under the minimum purchase)
 const resolveAppliedCoupon = async (userId, cart, base) => {
   if (!cart || !cart.couponId) return { coupon: null, discount: 0, invalid: null };
 
@@ -210,8 +187,7 @@ const resolveAppliedCoupon = async (userId, cart, base) => {
   return { coupon, discount: calculateCouponDiscount(coupon, base), invalid: null };
 };
 
-// Count one successful redemption. Atomic: the update only matches while the coupon
-// is still live and under its limit, so two orders can never both take the last redemption.
+
 const redeemCoupon = async (couponId) => {
   const updated = await Coupon.findOneAndUpdate(
     {
@@ -231,7 +207,7 @@ const redeemCoupon = async (couponId) => {
   return Boolean(updated);
 };
 
-// Give a redemption back (order failed after redeeming, or the whole order was cancelled)
+
 const releaseCoupon = async (couponId) => {
   if (!couponId) return;
   await Coupon.updateOne({ _id: couponId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
@@ -241,7 +217,7 @@ module.exports = {
   getAvailableCoupons,
   applyCoupon,
   removeCoupon,
-  // shared with checkoutService / orderService
+
   assertCouponUsable,
   resolveAppliedCoupon,
   clearAppliedCoupon,
