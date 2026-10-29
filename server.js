@@ -21,6 +21,8 @@ const cartRoutes = require('./src/routes/user/cartRoutes');
 const wishlistRoutes = require('./src/routes/user/wishlistRoutes');
 const checkoutRoutes = require('./src/routes/user/checkoutRoutes');
 const orderRoutes = require('./src/routes/user/orderRoutes');
+const paymentRoutes = require('./src/routes/user/paymentRoutes');
+const { startSweeper } = require('./src/services/payment/unpaidOrders');
 const couponRoutes = require('./src/routes/user/couponRoutes');
 const adminOrderRoutes = require('./src/routes/admin/orderRoutes');
 const adminInventoryRoutes = require('./src/routes/admin/inventoryRoutes');
@@ -38,10 +40,12 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
+// rawBody is kept so the Razorpay webhook signature can be checked
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
 connectDB();
+startSweeper(); // gives back stock held by online orders that were never paid
 
 app.use('/api/auth', authRoutes);
 app.use('/api/account',accountRoutes);
@@ -53,6 +57,7 @@ app.use('/api/cart',cartRoutes);
 app.use('/api/wishlist',wishlistRoutes);
 app.use('/api/checkout',checkoutRoutes);
 app.use('/api/orders',orderRoutes);
+app.use('/api/payments',paymentRoutes);
 app.use('/api/coupons',couponRoutes);
 
 //admin routes

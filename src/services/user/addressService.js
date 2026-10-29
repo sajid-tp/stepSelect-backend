@@ -94,16 +94,6 @@ const deleteAddress = async (userId, addressId) => {
 };
 
 
-const addressCount = async(req) => {
-    const userId = req.user;
-    const count = await Address.countDocuments({
-      user : userId._id
-    });
-    console.log(count)
-
-}
-
-addressCount();
 
 module.exports = {
   getAddresses,

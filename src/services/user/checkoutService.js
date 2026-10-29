@@ -25,8 +25,13 @@ const {
 } = require('../../utils/orderHelpers');
 const { buildLines } = require('../../utils/cartLines');
 const couponService = require('./couponService');
+const { getEnabledMethods } = require('../payment/gateways');
+const { releaseUserUnpaidOrders } = require('../payment/unpaidOrders');
 
 const getCheckoutSummary = async (userId) => {
+  // Shoes held by an earlier unpaid online attempt go back on the shelf, so they show up as available
+  await releaseUserUnpaidOrders(userId);
+
   const [cart, addresses] = await Promise.all([
     Cart.findOne({ userId }),
     Address.find({ user: userId }).sort({ isDefault: -1, createdAt: -1 }),
@@ -77,7 +82,7 @@ const getCheckoutSummary = async (userId) => {
         }
       : null,
     couponMessage, 
-    paymentMethods: [PAYMENT_METHODS.COD],
+    paymentMethods: getEnabledMethods(), // COD + every online gateway that has keys in .env
 
     canPlaceOrder: lines.length > 0 && buyable.length === lines.length && addresses.length > 0,
   };
@@ -109,10 +114,23 @@ const rollbackStock = async (taken) => {
 };
 
 
-const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
-  if (paymentMethod && paymentMethod !== PAYMENT_METHODS.COD) {
+// options.allowOnline is only passed by the payment service. The normal /place-order endpoint
+// never sets it, so it stays Cash on Delivery only.
+// For an online method the order is created UNPAID: stock is held, but the cart is kept
+// until the payment succeeds (see services/payment/paymentService.js).
+const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnline = false } = {}) => {
+  const isOnline =
+    allowOnline &&
+    Boolean(paymentMethod) &&
+    paymentMethod !== PAYMENT_METHODS.COD &&
+    Object.values(PAYMENT_METHODS).includes(paymentMethod);
+
+  if (paymentMethod && paymentMethod !== PAYMENT_METHODS.COD && !isOnline) {
     throw createError(MESSAGES.CHECKOUT.ONLY_COD_IS_AVAILABLE, STATUS.BAD_REQUEST);
   }
+
+  // A new attempt replaces the customer's earlier unpaid online order (stock goes back first)
+  await releaseUserUnpaidOrders(userId);
 
 
   let address;
@@ -193,7 +211,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
           couponId: coupon ? coupon._id : null,
           couponCode: coupon ? coupon.couponCode : null,
           status: ORDER_STATUS.PENDING,
-          paymentMethod: PAYMENT_METHODS.COD,
+          paymentMethod: isOnline ? paymentMethod : PAYMENT_METHODS.COD,
           paymentStatus: PAYMENT_STATUS.PENDING,
         });
       } catch (err) {
@@ -234,14 +252,17 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}) => {
   }
 
 
-  try {
-    await Cart.updateOne({ userId }, { $set: { items: [], couponId: null } });
-    await Wishlist.updateOne(
-      { userId },
-      { $pull: { items: { $or: lines.map((l) => ({ variantId: l.variantId, size: l.size })) } } }
-    );
-  } catch (err) {
-    console.error('Cart/wishlist cleanup failed after order', order.orderNumber, err.message);
+  // Online orders empty the cart later, when the payment succeeds
+  if (!isOnline) {
+    try {
+      await Cart.updateOne({ userId }, { $set: { items: [], couponId: null } });
+      await Wishlist.updateOne(
+        { userId },
+        { $pull: { items: { $or: lines.map((l) => ({ variantId: l.variantId, size: l.size })) } } }
+      );
+    } catch (err) {
+      console.error('Cart/wishlist cleanup failed after order', order.orderNumber, err.message);
+    }
   }
 
   return {

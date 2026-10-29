@@ -11,9 +11,12 @@ const {
   ITEM_STATUS,
   STATUS_FLOW,
   PAYMENT_STATUS,
+  PAYMENT_METHODS,
+  unpaidOnlineFilter,
 } = require('../../constants/orderConstants');
 const { isObjectId, escapeRegex, restoreStock, calculateTotals, pushHistory } = require('../../utils/orderHelpers');
 const { toOrderView } = require('../user/orderService');
+const { refundOrder } = require('../payment/refundService');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
@@ -46,7 +49,8 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-  const filter = {};
+  // Online orders that were never paid are not real orders yet
+  const filter = { $nor: [unpaidOnlineFilter()] };
 
   if (status && Object.values(ORDER_STATUS).includes(status)) filter.status = status;
 
@@ -173,7 +177,13 @@ const updateOrderStatus = async (orderRef, newStatus) => {
     order.cancelledAt = new Date();
     order.cancelReason = 'Cancelled by admin';
     await order.save();
+    await refundOrder(order, null); // paid online: money goes back (COD / unpaid: does nothing)
     return getOrder(order._id);
+  }
+
+  // An online order can only move forward once its payment has arrived
+  if (order.paymentMethod !== PAYMENT_METHODS.COD && order.paymentStatus !== PAYMENT_STATUS.PAID) {
+    throw createError('Payment has not been received for this order yet.', STATUS.CONFLICT, ERROR_CODES.INVALID_STATUS_TRANSITION);
   }
 
   if (STATUS_FLOW.indexOf(newStatus) <= STATUS_FLOW.indexOf(current)) {
@@ -196,7 +206,7 @@ const updateOrderStatus = async (orderRef, newStatus) => {
   order.status = newStatus;
   if (newStatus === ORDER_STATUS.DELIVERED) {
     order.deliveredAt = new Date();
-    order.paymentStatus = PAYMENT_STATUS.PAID; // cash collected on delivery
+    if (order.paymentMethod === PAYMENT_METHODS.COD) order.paymentStatus = PAYMENT_STATUS.PAID; // cash collected on delivery
   }
   await order.save();
 
@@ -244,6 +254,12 @@ const handleReturn = async (orderRef, itemId, action, reason) => {
     pushHistory(item, ITEM_STATUS.RETURNED, `Return approved for ${requestedQty} unit(s)`);
     await item.save();
     await restoreStock(item.variantId, item.size, requestedQty); // shoes go back on the shelf
+
+    // Paid online: refund what these units cost (after their share of the coupon, plus tax)
+    if (item.quantity > 0) {
+      const perUnit = (item.itemTotal - (item.couponShare || 0) + (item.taxAmount || 0)) / item.quantity;
+      await refundOrder(order, Math.round(perUnit * requestedQty * 100) / 100);
+    }
   } else {
     // Rejected: keep the reason and put the item back to "delivered"
     item.returnRejectReason = cleanReason;

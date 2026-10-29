@@ -35,14 +35,7 @@ const getUsers = async ({ search, page = 1, limit = 10 ,sort}) => {
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
-  const count = users.map(async (u) => {
 
-    const addressCount = await Address.countDocuments({
-
-      user : u.user
-
-    })
-  })
 
   const formattedUsers = users.map((u) => ({
     id: u._id,
