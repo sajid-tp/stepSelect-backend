@@ -38,6 +38,21 @@ const orderSchema = new mongoose.Schema(
     paymentMethod: { type: String, enum: Object.values(PAYMENT_METHODS), default: PAYMENT_METHODS.COD },
     paymentStatus: { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.PENDING },
 
+    // Online payment details (stay empty for Cash on Delivery)
+    payment: {
+      gateway: { type: String, default: null },          // RAZORPAY | WALLET
+      gatewayOrderId: { type: String, default: null },   // id of the order at the gateway
+      paymentId: { type: String, default: null },        // payment / capture id after success
+      currency: { type: String, default: null },         // currency charged at the gateway
+      chargedAmount: { type: Number, default: 0 },       // amount in that currency
+      paidInr: { type: Number, default: 0 },             // amount paid, in INR
+      refundedInr: { type: Number, default: 0 },         // total refunded so far, in INR
+      attempts: { type: Number, default: 0 },
+      failureReason: { type: String, default: null },
+      refundError: { type: String, default: null },
+      paidAt: { type: Date, default: null },
+    },
+
     deliveredAt: { type: Date, default: null },
     cancelledAt: { type: Date, default: null },
     cancelReason: { type: String, default: null },

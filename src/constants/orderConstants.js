@@ -26,12 +26,20 @@ const STATUS_FLOW = [
   ORDER_STATUS.DELIVERED,
 ];
 
-const PAYMENT_METHODS = Object.freeze({ COD: 'COD' });
+const PAYMENT_METHODS = Object.freeze({ COD: 'COD', RAZORPAY: 'RAZORPAY', WALLET: 'WALLET' });
 const PAYMENT_STATUS = Object.freeze({
   PENDING: 'pending',
   PAID: 'paid',
   FAILED: 'failed',
   REFUNDED: 'refunded',
+});
+
+// An online order whose payment has not been completed (yet). These hold stock for a short time,
+// but they are not real orders: they never show in order lists and the admin cannot ship them.
+// (a function, because Mongoose changes the filter objects it is given while it runs a query)
+const unpaidOnlineFilter = () => ({
+  paymentMethod: { $ne: PAYMENT_METHODS.COD },
+  paymentStatus: { $in: [PAYMENT_STATUS.PENDING, PAYMENT_STATUS.FAILED] },
 });
 
 const CANCEL_REASONS = [
@@ -66,6 +74,7 @@ module.exports = {
   STATUS_FLOW,
   PAYMENT_METHODS,
   PAYMENT_STATUS,
+  unpaidOnlineFilter,
   CANCEL_REASONS,
   RETURN_REASONS,
   PRICING,

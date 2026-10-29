@@ -12,6 +12,7 @@ const {
   ITEM_STATUS,
   CANCEL_REASONS,
   RETURN_REASONS,
+  unpaidOnlineFilter,
 } = require('../../constants/orderConstants');
 
 const {
@@ -22,6 +23,7 @@ const {
 } = require('../../utils/orderHelpers');
 
 const { releaseCoupon } = require('./couponService');
+const { refundOrder } = require('../payment/refundService');
 
 
 
@@ -246,6 +248,14 @@ const toOrderView = (order, items) => {
     status: order.status,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    payment: {
+      gateway: order.payment?.gateway || null,
+      paymentId: order.payment?.paymentId || null,
+      paidAt: order.payment?.paidAt || null,
+      refundedAmount: order.payment?.refundedInr || 0,
+      failureReason: order.payment?.failureReason || null,
+      refundError: order.payment?.refundError || null,
+    },
 
     createdAt: order.createdAt,
     deliveredAt: order.deliveredAt,
@@ -299,8 +309,13 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
     await releaseCoupon(order.couponId);
 
+    // Paid (Razorpay / wallet): send everything that was not refunded yet to the wallet (COD / unpaid: does nothing)
+    await refundOrder(order, null, { reason: 'cancel' });
+
     return;
   }
+
+  const totalBefore = order.totalAmount;
 
   const lines = [];
   let couponDiscount = 0;
@@ -348,6 +363,9 @@ const refreshOrderAfterCancel = async (order, reason) => {
   order.totalAmount = totals.totalAmount;
 
   await order.save();
+
+  // Paid (Razorpay / wallet): refund the part of the total that was just cancelled to the wallet
+  await refundOrder(order, round2(totalBefore - totals.totalAmount), { reason: 'cancel' });
 };
 
 
@@ -500,6 +518,8 @@ const getMyOrders = async (
 
   const filter = {
     userId,
+    // Online orders that were never paid are not real orders yet
+    $nor: [unpaidOnlineFilter()],
   };
 
 
