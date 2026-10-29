@@ -1,5 +1,9 @@
 // src/services/payment/paymentService.js
+<<<<<<< HEAD
 // Online payment flow (Razorpay real test mode / built-in demo mode, and the customer wallet):
+=======
+// Online payment flow (Razorpay, real test mode or built-in demo mode):
+>>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
 //
 //   1. initiate   -> creates the order (stock is held, cart is kept) + the gateway payment
 //   2. customer pays on the Razorpay popup
@@ -23,8 +27,11 @@ const checkoutService = require('../user/checkoutService');
 const { getGateway, getEnabledMethods } = require('./gateways');
 const { releaseUnpaidOrder, releaseUserUnpaidOrders, holdMinutes } = require('./unpaidOrders');
 const { refundOrder } = require('./refundService');
+<<<<<<< HEAD
 const walletService = require('../user/walletService');
 const { WALLET_SOURCE } = require('../../constants/walletConstants');
+=======
+>>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
 
 const requireGateway = (name) => {
   const gateway = getGateway(name);
@@ -178,9 +185,15 @@ const markPaid = async (order, paymentId) => {
     { _id: current._id },
     { $set: { paymentStatus: PAYMENT_STATUS.PAID, 'payment.paymentId': paymentId, 'payment.paidInr': current.totalAmount, 'payment.paidAt': new Date() } }
   );
+<<<<<<< HEAD
   await refundOrder(await Order.findById(current._id), null, { note: 'payment arrived after the order expired' });
   throw createError(
     'Your payment arrived after the order expired, so it was added to your wallet. Please place the order again.',
+=======
+  await refundOrder(await Order.findById(current._id), null);
+  throw createError(
+    'Your payment arrived after the order expired, so it was refunded. Please place the order again.',
+>>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
     STATUS.CONFLICT
   );
 };
@@ -216,6 +229,7 @@ const verifyRazorpay = async (userId, body = {}) => {
   return toStatusView(await markPaid(order, razorpay_payment_id));
 };
 
+<<<<<<< HEAD
 // ---------------------------------------------------------------
 // Pay the whole order from the wallet (no popup, the result is known at once)
 // ---------------------------------------------------------------
@@ -276,6 +290,8 @@ const payWithWallet = async (userId, { addressId } = {}) => {
   }
 };
 
+=======
+>>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
 // The popup reported a failure, or the customer closed it
 const reportFailure = async (userId, orderNumber, reason) => {
   const order = await findMyOrder(userId, orderNumber);
@@ -332,7 +348,10 @@ const handleRazorpayWebhook = async (rawBody, signature, event) => {
 
 module.exports = {
   initiate,
+<<<<<<< HEAD
   payWithWallet,
+=======
+>>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
   verifyRazorpay,
   reportFailure,
   retry,

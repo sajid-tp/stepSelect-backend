@@ -309,8 +309,13 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
     await releaseCoupon(order.couponId);
 
+<<<<<<< HEAD
     // Paid (Razorpay / wallet): send everything that was not refunded yet to the wallet (COD / unpaid: does nothing)
     await refundOrder(order, null, { reason: 'cancel' });
+=======
+    // Paid online: send back everything that was not refunded yet (COD / unpaid: does nothing)
+    await refundOrder(order, null);
+>>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
 
     return;
   }
@@ -364,8 +369,13 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
   await order.save();
 
+<<<<<<< HEAD
   // Paid (Razorpay / wallet): refund the part of the total that was just cancelled to the wallet
   await refundOrder(order, round2(totalBefore - totals.totalAmount), { reason: 'cancel' });
+=======
+  // Paid online: refund the part of the total that was just cancelled
+  await refundOrder(order, round2(totalBefore - totals.totalAmount));
+>>>>>>> 67b2effa5d75680186ee22954d0086a048c2c0c0
 };
 
 
