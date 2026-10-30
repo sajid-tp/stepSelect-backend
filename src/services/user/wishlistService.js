@@ -7,6 +7,7 @@ const Brand = require('../../models/brands');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
+const { getOfferMap, resolveDiscount } = require('./offerService');
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 50;
@@ -30,10 +31,10 @@ const isVisible = (doc) => {
   return Boolean(doc && doc.isActive && !doc.deletedAt);
 };
 
-// Internal Helper: price after discount
-const getFinalPrice = (variant) => {
+// Internal Helper: price after discount (the percent comes from the offer engine)
+const getFinalPrice = (variant, discountPercent) => {
   const price = Number(variant.price) || 0;
-  const discount = Math.min(Math.max(Number(variant.discountPercent) || 0, 0), 100);
+  const discount = Math.min(Math.max(Number(discountPercent) || 0, 0), 100);
   return Math.round(price - (price * discount) / 100);
 };
 
@@ -99,6 +100,7 @@ const buildWishlistView = async (wishlist, paging) => {
   const products = await Product.find({ _id: { $in: variants.map((v) => v.productId) } });
   const brands = await Brand.find({ _id: { $in: products.map((p) => p.brandId) } });
   const categories = await Category.find({ _id: { $in: products.map((p) => p.categoryId) } });
+  const offerMap = await getOfferMap(products.map((p) => ({ productId: p._id, categoryId: p.categoryId })));
 
   for (const item of pageItems) {
     const variant = variants.find((v) => String(v._id) === String(item.variantId));
@@ -136,6 +138,11 @@ const buildWishlistView = async (wishlist, paging) => {
       image = typeof first === 'string' ? first : first.url || null;
     }
 
+    const { discountPercent, offer } = resolveDiscount(
+      product ? offerMap.get(String(product._id)) : null,
+      variant ? variant.discountPercent : 0
+    );
+
     view.items.push({
       productId: variant ? String(variant.productId) : null,
       variantId: String(item.variantId),
@@ -145,8 +152,9 @@ const buildWishlistView = async (wishlist, paging) => {
       size: item.size,
       image,
       price: variant ? Number(variant.price) || 0 : null,
-      discountPercent: variant ? Number(variant.discountPercent) || 0 : 0,
-      finalPrice: variant ? getFinalPrice(variant) : null,
+      discountPercent,
+      offer,
+      finalPrice: variant ? getFinalPrice(variant, discountPercent) : null,
       stock,
       inStock: isAvailable && stock > 0,
       isAvailable,

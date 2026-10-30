@@ -32,6 +32,11 @@ const orderItemSchema = new mongoose.Schema(
     taxAmount: { type: Number, default: 0, min: 0 },
     
     couponShare: { type: Number, default: 0, min: 0 },
+    referralShare: { type: Number, default: 0, min: 0 },
+
+    // Which offer produced discountPercent (product / category offer), for the records
+    offerName: { type: String, default: null },
+    offerSource: { type: String, enum: ['product', 'category', null], default: null },
 
     status: { type: String, enum: Object.values(ITEM_STATUS), default: ITEM_STATUS.PENDING },
     statusHistory: { type: [statusHistorySchema], default: [] },

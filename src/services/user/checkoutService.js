@@ -28,6 +28,7 @@ const couponService = require('./couponService');
 const { getEnabledMethods } = require('../payment/gateways');
 const { releaseUserUnpaidOrders } = require('../payment/unpaidOrders');
 const walletService = require('./walletService');
+const referralService = require('./referralService');
 
 const getCheckoutSummary = async (userId) => {
   // Shoes held by an earlier unpaid online attempt go back on the shelf, so they show up as available
@@ -50,7 +51,9 @@ const getCheckoutSummary = async (userId) => {
     couponMessage = MESSAGES.COUPON.COUPON_REMOVED_FROM_CART(applied.invalid.message);
   }
 
-  const totals = calculateTotals(buyable, undefined, applied.discount);
+  // Referral offer (a referred friend's first order), taken off after the coupon
+  const referral = await referralService.resolveReferralDiscount(userId, base);
+  const totals = calculateTotals(buyable, undefined, applied.discount, referral.discount);
   const defaultAddress = addresses.find((a) => a.isDefault) || null;
 
   return {
@@ -65,6 +68,8 @@ const getCheckoutSummary = async (userId) => {
       image: l.image,
       price: l.price,
       discountPercent: l.discountPercent,
+      offerName: l.offerName,
+      offerSource: l.offerSource,
       finalPrice: l.finalPrice,
       quantity: l.quantity,
       itemTotal: l.itemTotal,
@@ -84,6 +89,13 @@ const getCheckoutSummary = async (userId) => {
         }
       : null,
     couponMessage, 
+    referral: {
+      eligible: referral.eligible,
+      discountAmount: totals.referralDiscount,
+      offerAmount: referral.offerAmount || 0,
+      minOrderAmount: referral.minOrderAmount,
+      hint: referral.hint,
+    },
     paymentMethods: [...getEnabledMethods(), PAYMENT_METHODS.WALLET], // COD + Razorpay (when on) + the wallet
     walletBalance,
 
@@ -167,7 +179,8 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
     throw createError(applied.invalid.message, STATUS.BAD_REQUEST, applied.invalid.code);
   }
   const coupon = applied.coupon;
-  const totals = calculateTotals(lines, undefined, applied.discount);
+  const referral = await referralService.resolveReferralDiscount(userId, base);
+  const totals = calculateTotals(lines, undefined, applied.discount, referral.discount);
 
 
   const taken = [];
@@ -191,6 +204,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
     }
   }
   const couponShares = allocateCouponShares(lines, totals.couponDiscount);
+  const referralShares = allocateCouponShares(lines, totals.referralDiscount);
 
 
   let order = null;
@@ -213,6 +227,8 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
           ...totals,
           couponId: coupon ? coupon._id : null,
           couponCode: coupon ? coupon.couponCode : null,
+          // what the referrer is paid when this order is delivered (only when the referral offer was used)
+          referralReward: totals.referralDiscount > 0 ? referral.reward : 0,
           status: ORDER_STATUS.PENDING,
           paymentMethod: isOnline ? paymentMethod : PAYMENT_METHODS.COD,
           paymentStatus: PAYMENT_STATUS.PENDING,
@@ -234,11 +250,14 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
         image: l.image,
         price: l.price,
         discountPercent: l.discountPercent,
+        offerName: l.offerName,
+        offerSource: l.offerSource,
         finalPrice: l.finalPrice,
         quantity: l.quantity,
         itemTotal: l.itemTotal,
         taxAmount: l.taxAmount,
         couponShare: couponShares[index],
+        referralShare: referralShares[index],
         status: ITEM_STATUS.PENDING,
         statusHistory: [{ status: ITEM_STATUS.PENDING, note: 'Order placed', updatedAt: new Date() }],
       }))
@@ -274,6 +293,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
     totalAmount: order.totalAmount,
     couponCode: order.couponCode,
     couponDiscount: order.couponDiscount,
+    referralDiscount: order.referralDiscount || 0,
     paymentMethod: order.paymentMethod,
   };
 };

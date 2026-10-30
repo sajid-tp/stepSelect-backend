@@ -33,6 +33,10 @@ const orderSchema = new mongoose.Schema(
     couponId: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon', default: null },
     couponCode: { type: String, default: null },               
     couponDiscount: { type: Number, default: 0, min: 0 },       
+    // Referral offer (a referred friend's first order). referralReward is what the referrer
+    // receives in their wallet once this order is delivered.
+    referralDiscount: { type: Number, default: 0, min: 0 },
+    referralReward: { type: Number, default: 0, min: 0 },
 
     status: { type: String, enum: Object.values(ORDER_STATUS), default: ORDER_STATUS.PENDING, index: true },
     paymentMethod: { type: String, enum: Object.values(PAYMENT_METHODS), default: PAYMENT_METHODS.COD },

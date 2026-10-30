@@ -29,6 +29,30 @@ const userSchema = new mongoose.Schema({
   referralId: {
     type: String,
   },
+  // Referral programme -------------------------------------------------
+  // referralCode  : short code the customer shares ("SAJID-7K2Q"), typed in the signup form
+  // referralToken : opaque token used in the invite link ("/invite/<token>")
+  // referredBy    : the customer whose code / link this person signed up with
+  referralCode: {
+    type: String,
+    uppercase: true,
+    trim: true,
+    unique: true,
+    sparse: true,
+  },
+  referralToken: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    unique: true,
+    sparse: true,
+  },
+  referredBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+    index: true,
+  },
   termsAccepted: {
     type: Boolean,
     default: false,

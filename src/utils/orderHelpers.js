@@ -42,7 +42,8 @@ const calculateLine = (price, discountPercent, quantity) => {
 
 // Totals for a list of lines (each line from calculateLine).
 // couponDiscount (optional) is the money a coupon takes off AFTER the product discounts.
-const calculateTotals = (lines, shippingFeeOverride, couponDiscount = 0) => {
+// referralDiscount (optional) is the referral offer, taken off after the coupon.
+const calculateTotals = (lines, shippingFeeOverride, couponDiscount = 0, referralDiscount = 0) => {
   const subtotal = lines.reduce((sum, l) => sum + l.lineSubtotal, 0);
   const discountTotal = lines.reduce((sum, l) => sum + l.lineDiscount, 0);
   const taxTotal = lines.reduce((sum, l) => sum + l.taxAmount, 0);
@@ -52,9 +53,13 @@ const calculateTotals = (lines, shippingFeeOverride, couponDiscount = 0) => {
   const coupon = Math.min(Math.max(Math.round(Number(couponDiscount) || 0), 0), afterDiscount);
   const afterCoupon = afterDiscount - coupon;
 
+  // The referral offer can never take off more than what is left to pay
+  const referral = Math.min(Math.max(Math.round(Number(referralDiscount) || 0), 0), afterCoupon);
+  const afterReferral = afterCoupon - referral;
+
   let shippingFee = shippingFeeOverride;
   if (shippingFee === undefined) {
-    const free = PRICING.FREE_SHIPPING_ABOVE > 0 && afterCoupon >= PRICING.FREE_SHIPPING_ABOVE;
+    const free = PRICING.FREE_SHIPPING_ABOVE > 0 && afterReferral >= PRICING.FREE_SHIPPING_ABOVE;
     shippingFee = free || lines.length === 0 ? 0 : PRICING.SHIPPING_FEE;
   }
 
@@ -62,9 +67,10 @@ const calculateTotals = (lines, shippingFeeOverride, couponDiscount = 0) => {
     subtotal,
     discountTotal,
     couponDiscount: coupon,
+    referralDiscount: referral,
     taxTotal,
     shippingFee,
-    totalAmount: afterCoupon + taxTotal + shippingFee,
+    totalAmount: afterReferral + taxTotal + shippingFee,
   };
 };
 
@@ -88,7 +94,7 @@ const calculateCouponDiscount = (coupon, base) => {
   return Math.max(Math.min(Math.round(discount), amount), 0);
 };
 
-// Split the coupon discount over the order lines in proportion to what each line costs.
+// Split a discount (coupon or referral) over the order lines in proportion to what each line costs.
 // The shares always add up to exactly couponDiscount (the last line takes the rounding leftover).
 const allocateCouponShares = (lines, couponDiscount) => {
   const total = lines.reduce((sum, l) => sum + l.itemTotal, 0);

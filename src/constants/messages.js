@@ -206,6 +206,12 @@ const MESSAGES = Object.freeze({
     COUPON_REMOVED_FROM_CART: (reason) => `Your coupon was removed. ${reason}`,
   }),
 
+  REFERRAL: Object.freeze({
+    INVALID_REFERRAL_CODE: 'This referral code or link is not valid.',
+    MINIMUM_ORDER_HINT: (shortfall, discount) => `Add \u20b9${shortfall} more to unlock your \u20b9${discount} referral offer.`,
+    REWARD_DESCRIPTION: (name) => `Referral reward: ${name} received their first order`,
+  }),
+
   CHECKOUT: Object.freeze({
     ADDRESS_IS_REQUIRED: 'Please select a delivery address.',
     CART_IS_EMPTY: 'Your cart is empty.',

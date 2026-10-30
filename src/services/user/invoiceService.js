@@ -69,6 +69,7 @@ const writeInvoice = (res, { order, items }) => {
   row('Subtotal', money(order.subtotal));
   if (order.discountTotal > 0) row('Discount', `- ${money(order.discountTotal)}`);
   if (order.couponDiscount > 0) row(order.couponCode ? `Coupon (${order.couponCode})` : 'Coupon', `- ${money(order.couponDiscount)}`);
+  if (order.referralDiscount > 0) row('Referral offer', `- ${money(order.referralDiscount)}`);
   if (order.taxTotal > 0) row('Tax', money(order.taxTotal));
   row('Shipping', order.shippingFee > 0 ? money(order.shippingFee) : 'Free');
   row('Total', money(order.totalAmount), true);

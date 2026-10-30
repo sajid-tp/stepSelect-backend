@@ -14,6 +14,7 @@ const {
 } = require('../../utils/jwt');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
+const referralService = require('./referralService');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -42,7 +43,11 @@ const createAndSendOtp = async (user, type, emailSubject) => {
 };
 
 
-const signup = async ({ username, email, password }) => {
+// referralCode is optional. It can be a referral code or the token from an invite link.
+const signup = async ({ username, email, password, referralCode }) => {
+  // Check the code first, so a typo is reported before anything is created
+  const referrer = referralCode ? await referralService.requireReferrer(referralCode) : null;
+
   const userExists = await User.findOne({ email });
   if (userExists) {
     if (userExists.isVerified) {
@@ -52,11 +57,19 @@ const signup = async ({ username, email, password }) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
+  if (referrer && referrer.email === email) {
+    throw createError(MESSAGES.REFERRAL.INVALID_REFERRAL_CODE, STATUS.BAD_REQUEST);
+  }
+
   const user = await User.create({
     username,
     email,
     password: hashedPassword,
+    referredBy: referrer ? referrer._id : null,
   });
+
+  // every customer gets a code + invite link of their own
+  await referralService.ensureReferralIdentity(user);
 
   return {
     _id: user._id,
@@ -65,7 +78,8 @@ const signup = async ({ username, email, password }) => {
 };
 
 
-const googleAuth = async (token) => {
+// referralCode (optional) only counts when this Google login creates a brand-new account
+const googleAuth = async (token, referralCode) => {
   let ticket;
   try {
     ticket = await client.verifyIdToken({
@@ -86,6 +100,7 @@ const googleAuth = async (token) => {
       if (!user.profileImage) user.profileImage = picture;
       await user.save();
     } else {
+      const referrer = referralCode ? await referralService.resolveReferrer(referralCode) : null;
       user = await User.create({
         username: name,
         email,
@@ -93,7 +108,9 @@ const googleAuth = async (token) => {
         profileImage: picture,
         isVerified: true,
         termsAccepted: true,
+        referredBy: referrer && referrer.email !== email ? referrer._id : null,
       });
+      await referralService.ensureReferralIdentity(user);
     }
   }
 

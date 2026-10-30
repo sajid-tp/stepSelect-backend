@@ -54,6 +54,7 @@ const toStatusView = (order) => ({
   totalAmount: order.totalAmount,
   couponCode: order.couponCode || null,
   couponDiscount: order.couponDiscount || 0,
+  referralDiscount: order.referralDiscount || 0,
   paymentId: order.payment?.paymentId || null,
   paidAt: order.payment?.paidAt || null,
   failureReason: order.payment?.failureReason || null,

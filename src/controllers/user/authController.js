@@ -8,6 +8,7 @@ const MESSAGES = require('../../constants/messages');
 // 1. Signup
 const signup = async (req, res) => {
   const { username, email, password } = req.body;
+  const referralCode = typeof req.body.referralCode === 'string' ? req.body.referralCode.trim() : '';
 
   if (!username || !email || !password) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.COMMON.PLEASE_FILL_ALL_THE_FIELDS });
@@ -28,7 +29,11 @@ const signup = async (req, res) => {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PASSWORD_SHOULD_BE_6_CHARACTERS });
   }
 
-  const user = await authService.signup({ username, email, password });
+  if (referralCode.length > 40) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.REFERRAL.INVALID_REFERRAL_CODE });
+  }
+
+  const user = await authService.signup({ username, email, password, referralCode: referralCode || undefined });
   return res.status(STATUS.CREATED).json(user);
 };
 
@@ -39,7 +44,8 @@ const google = async (req, res) => {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.GOOGLE_TOKEN_IS_REQUIRED });
   }
 
-  const { accessToken, refreshToken, user } = await authService.googleAuth(token);
+  const referralCode = typeof req.body.referralCode === 'string' ? req.body.referralCode.trim() : '';
+  const { accessToken, refreshToken, user } = await authService.googleAuth(token, referralCode || undefined);
   sendTokenCookies(res, accessToken, refreshToken);
 
   return res.status(STATUS.OK).json(user);

@@ -268,6 +268,7 @@ const toOrderView = (order, items) => {
       subtotal: order.subtotal,
       discountTotal: order.discountTotal,
       couponDiscount: order.couponDiscount || 0,
+      referralDiscount: order.referralDiscount || 0,
       taxTotal: order.taxTotal,
       shippingFee: order.shippingFee,
       totalAmount: order.totalAmount,
@@ -319,6 +320,7 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
   const lines = [];
   let couponDiscount = 0;
+  let referralDiscount = 0;
 
   for (const item of activeItems) {
     const remainingQuantity = getRemainingQuantity(item);
@@ -342,6 +344,9 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
     couponDiscount += itemCouponDiscount;
 
+    // the referral offer is shared over the items the same way a coupon is
+    referralDiscount += round2((item.referralShare || 0) * remainingRatio);
+
     lines.push({
       lineSubtotal,
       lineDiscount,
@@ -353,12 +358,14 @@ const refreshOrderAfterCancel = async (order, reason) => {
   const totals = calculateTotals(
     lines,
     order.shippingFee,
-    round2(couponDiscount)
+    round2(couponDiscount),
+    round2(referralDiscount)
   );
 
   order.subtotal = totals.subtotal;
   order.discountTotal = totals.discountTotal;
   order.couponDiscount = totals.couponDiscount;
+  order.referralDiscount = totals.referralDiscount;
   order.taxTotal = totals.taxTotal;
   order.totalAmount = totals.totalAmount;
 

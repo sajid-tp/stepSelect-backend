@@ -17,6 +17,7 @@ const {
 const { isObjectId, escapeRegex, restoreStock, calculateTotals, pushHistory } = require('../../utils/orderHelpers');
 const { toOrderView } = require('../user/orderService');
 const { refundOrder } = require('../payment/refundService');
+const referralService = require('../user/referralService');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
@@ -210,6 +211,16 @@ const updateOrderStatus = async (orderRef, newStatus) => {
   }
   await order.save();
 
+  // A referred friend's first order has arrived: pay the person who referred them.
+  // (A failure here must never undo the delivery, so it is only logged.)
+  if (newStatus === ORDER_STATUS.DELIVERED) {
+    try {
+      await referralService.rewardReferrerForOrder(order);
+    } catch (err) {
+      console.error('Referral reward failed for order', order.orderNumber, err.message);
+    }
+  }
+
   return getOrder(order._id);
 };
 
@@ -258,7 +269,8 @@ const handleReturn = async (orderRef, itemId, action, reason) => {
     // The admin approved the return: put what these units cost (after their share of the coupon,
     // plus tax) into the customer's wallet. This also covers Cash on Delivery orders.
     if (item.quantity > 0) {
-      const perUnit = (item.itemTotal - (item.couponShare || 0) + (item.taxAmount || 0)) / item.quantity;
+      const perUnit =
+        (item.itemTotal - (item.couponShare || 0) - (item.referralShare || 0) + (item.taxAmount || 0)) / item.quantity;
       await refundOrder(order, Math.round(perUnit * requestedQty * 100) / 100, {
         reason: 'return',
         note: `${item.name} x${requestedQty}`,

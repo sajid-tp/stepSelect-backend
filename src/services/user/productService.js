@@ -7,6 +7,7 @@ const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
+const { getOfferMap, resolveDiscount } = require('./offerService');
 
 const isObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(value);
 
@@ -224,8 +225,17 @@ const getProducts = async ({
   const totalResults = result.total[0]?.count || 0;
   const totalPages = Math.ceil(totalResults / limitNum);
 
+  // Product / category offers: the shopper gets the larger of the two
+  const offerMap = await getOfferMap(
+    result.items.map((item) => ({ productId: item.id, categoryId: item.categoryId }))
+  );
+  const products = result.items.map((item) => {
+    const { discountPercent, offer } = resolveDiscount(offerMap.get(String(item.id)), item.discountPercent);
+    return { ...item, discountPercent, offer };
+  });
+
   return {
-    products: result.items,
+    products,
     pagination: {
       page: pageNum,
       limit: limitNum,
@@ -271,6 +281,9 @@ const getProduct = async (productId) => {
     throw createError(MESSAGES.PRODUCT.PRODUCT_IS_CURRENTLY_UNAVAILABLE, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_UNAVAILABLE);
   }
 
+  const offerMap = await getOfferMap([{ productId: product._id, categoryId: product.categoryId?._id }]);
+  const productOffer = offerMap.get(String(product._id)) || null;
+
   return {
     id: product._id,
     name: product.productName,
@@ -284,17 +297,21 @@ const getProduct = async (productId) => {
       categoryName: product.categoryId?.categoryName,
     },
 
-    variants: variants.map((variant) => ({
-      id: variant._id,
-      color: variant.color,
-      price: variant.price,
-      discountPercent: variant.discountPercent || 0,
-      images: variant.images || [],
-      sizes: (variant.sizes || []).map((s) => ({
-        size: s.size,
-        quantity: s.stock,
-      })),
-    })),
+    variants: variants.map((variant) => {
+      const { discountPercent, offer } = resolveDiscount(productOffer, variant.discountPercent);
+      return {
+        id: variant._id,
+        color: variant.color,
+        price: variant.price,
+        discountPercent,
+        offer,
+        images: variant.images || [],
+        sizes: (variant.sizes || []).map((s) => ({
+          size: s.size,
+          quantity: s.stock,
+        })),
+      };
+    }),
   };
 };
 
@@ -355,12 +372,18 @@ const getRelatedProducts = async (productId, limit = 4) => {
     if (!firstVariant.has(String(v.productId))) firstVariant.set(String(v.productId), v);
   });
 
+  // every related product is in the same category as the current one
+  const offerMap = await getOfferMap(
+    products.map((p) => ({ productId: p._id, categoryId: current.categoryId._id }))
+  );
+
   return {
     products: products
       .filter((p) => firstVariant.has(String(p._id)))
       .slice(0, max)
       .map((p) => {
         const v = firstVariant.get(String(p._id));
+        const { discountPercent, offer } = resolveDiscount(offerMap.get(String(p._id)), v.discountPercent);
         return {
           id: String(p._id),
           name: p.productName,
@@ -370,7 +393,8 @@ const getRelatedProducts = async (productId, limit = 4) => {
             .map((image) => (typeof image === 'string' ? image : image?.url))
             .filter(Boolean),
           price: Number(v.price) || 0,
-          discountPercent: Number(v.discountPercent) || 0,
+          discountPercent,
+          offer,
         };
       }),
   };

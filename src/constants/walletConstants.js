@@ -9,6 +9,7 @@ const WALLET_SOURCE = Object.freeze({
   ORDER_PAYMENT: 'ORDER_PAYMENT',               // customer paid an order with the wallet
   ORDER_CANCEL_REFUND: 'ORDER_CANCEL_REFUND',   // order / item cancelled: refunded straight away
   ORDER_RETURN_REFUND: 'ORDER_RETURN_REFUND',   // return approved by the admin
+  REFERRAL_REWARD: 'REFERRAL_REWARD',           // a friend you referred got their first order delivered
 });
 
 // Rupee limits for the demo top-up

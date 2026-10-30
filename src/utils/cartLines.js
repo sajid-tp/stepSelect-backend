@@ -4,6 +4,7 @@ const Product = require('../models/products');
 const Category = require('../models/categories');
 const Brand = require('../models/brands');
 const { calculateLine, firstImage } = require('./orderHelpers');
+const { getOfferMap, resolveDiscount } = require('../services/user/offerService');
 
 const isVisible = (doc) => Boolean(doc && doc.isActive && !doc.deletedAt);
 
@@ -14,6 +15,7 @@ const buildLines = async (cart) => {
   const products = await Product.find({ _id: { $in: variants.map((v) => v.productId) } });
   const categories = await Category.find({ _id: { $in: products.map((p) => p.categoryId) } });
   const brands = await Brand.find({ _id: { $in: products.map((p) => p.brandId) } });
+  const offerMap = await getOfferMap(products.map((p) => ({ productId: p._id, categoryId: p.categoryId })));
 
   return cart.items.map((item) => {
     const variant = variants.find((v) => String(v._id) === String(item.variantId));
@@ -33,7 +35,11 @@ const buildLines = async (cart) => {
     }
 
     const price = variant ? Number(variant.price) || 0 : 0;
-    const discountPercent = variant ? Number(variant.discountPercent) || 0 : 0;
+    // product / category offer (the larger one wins), recalculated every time so a price never goes stale
+    const { discountPercent, offer } = resolveDiscount(
+      product ? offerMap.get(String(product._id)) : null,
+      variant ? variant.discountPercent : 0
+    );
     const money = calculateLine(price, discountPercent, item.quantity);
 
     return {
@@ -45,6 +51,8 @@ const buildLines = async (cart) => {
       image: variant ? firstImage(variant.images) : null,
       price,
       discountPercent,
+      offerName: offer ? offer.name : null,
+      offerSource: offer ? offer.source : null,
       quantity: item.quantity,
       stock,
       issue,

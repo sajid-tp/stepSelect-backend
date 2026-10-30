@@ -6,6 +6,8 @@ const Variant = require('../../models/variants');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
+const { getOfferMap, resolveDiscount } = require('./offerService');
+const { getFinalUnitPrice } = require('../../utils/orderHelpers');
 
 const MAX_QUANTITY_PER_ITEM = 5;
 
@@ -80,7 +82,9 @@ const buildCartView = async (cart) => {
   const view = {
     id: cart ? String(cart._id) : null,
     items: [],
-    totalPrice: 0,
+    totalPrice: 0, // what the customer pays for the items (after product / category offers)
+    totalMrp: 0, // the same items at their normal price
+    totalSavings: 0, // totalMrp - totalPrice
     totalItems: 0,
     maxQuantityPerItem: MAX_QUANTITY_PER_ITEM,
   };
@@ -93,6 +97,7 @@ const buildCartView = async (cart) => {
 
   const productIds = variants.map((variant) => variant.productId);
   const products = await Product.find({ _id: { $in: productIds } });
+  const offerMap = await getOfferMap(products.map((p) => ({ productId: p._id, categoryId: p.categoryId })));
 
   for (const item of cart.items) {
     const variant = variants.find((v) => String(v._id) === String(item.variantId));
@@ -133,10 +138,21 @@ const buildCartView = async (cart) => {
     }
 
     const price = variant ? variant.price || 0 : null;
-    const lineTotal = price === null ? 0 : price * item.quantity;
+
+    // Offer price: the larger of the product offer and the category offer
+    const { discountPercent, offer } = resolveDiscount(
+      product ? offerMap.get(String(product._id)) : null,
+      variant ? variant.discountPercent : 0
+    );
+    const finalPrice = price === null ? null : getFinalUnitPrice(price, discountPercent);
+    const lineTotal = finalPrice === null ? 0 : finalPrice * item.quantity;
+    const lineMrp = price === null ? 0 : price * item.quantity;
 
     // Only items that can be bought count towards the total price
-    if (isAvailable) view.totalPrice += lineTotal;
+    if (isAvailable) {
+      view.totalPrice += lineTotal;
+      view.totalMrp += lineMrp;
+    }
     view.totalItems += item.quantity;
 
     view.items.push({
@@ -147,6 +163,9 @@ const buildCartView = async (cart) => {
       size: item.size,
       image,
       price,
+      discountPercent,
+      finalPrice,
+      offer,
       quantity: item.quantity,
       lineTotal,
       stock,
@@ -156,6 +175,7 @@ const buildCartView = async (cart) => {
     });
   }
 
+  view.totalSavings = view.totalMrp - view.totalPrice;
   return view;
 };
 

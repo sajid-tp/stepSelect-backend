@@ -32,6 +32,8 @@ const adminBrandRoutes = require('./src/routes/admin/brandRoutes');
 const adminProducts = require('./src/routes/admin/productRoutes');
 const adminVariants = require('./src/routes/admin/variantRoutes');
 const adminCouponRoutes = require('./src/routes/admin/couponRoutes');
+const adminOfferRoutes = require('./src/routes/admin/offerRoutes');
+const referralRoutes = require('./src/routes/user/referralRoutes');
 const adminUploadRoutes =
   require("./src/routes/admin/uploadRoutes");
 const app = express();
@@ -61,6 +63,7 @@ app.use('/api/orders',orderRoutes);
 app.use('/api/payments',paymentRoutes);
 app.use('/api/wallet',walletRoutes);
 app.use('/api/coupons',couponRoutes);
+app.use('/api/referrals', referralRoutes);
 
 //admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
@@ -70,6 +73,7 @@ app.use('/api/admin/brands', adminBrandRoutes);
 app.use('/api/admin/products',adminProducts);
 app.use('/api/admin/variants',adminVariants);
 app.use('/api/admin/coupons', adminCouponRoutes);
+app.use('/api/admin/offers', adminOfferRoutes);
 app.use('/api/admin/orders',adminOrderRoutes);
 app.use('/api/admin/inventory',adminInventoryRoutes);
 app.use(
