@@ -26,6 +26,8 @@ const walletRoutes = require('./src/routes/user/walletRoutes');
 const { startSweeper } = require('./src/services/payment/unpaidOrders');
 const couponRoutes = require('./src/routes/user/couponRoutes');
 const adminOrderRoutes = require('./src/routes/admin/orderRoutes');
+const adminSalesReportRoutes = require('./src/routes/admin/salesReportRoutes');
+const adminDashboardRoutes = require('./src/routes/admin/dashboardRoutes');
 const adminInventoryRoutes = require('./src/routes/admin/inventoryRoutes');
 const adminCategoryRoutes = require('./src/routes/admin/categoryRoutes');
 const adminBrandRoutes = require('./src/routes/admin/brandRoutes');
@@ -75,6 +77,8 @@ app.use('/api/admin/variants',adminVariants);
 app.use('/api/admin/coupons', adminCouponRoutes);
 app.use('/api/admin/offers', adminOfferRoutes);
 app.use('/api/admin/orders',adminOrderRoutes);
+app.use('/api/admin/sales-report', adminSalesReportRoutes);
+app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/admin/inventory',adminInventoryRoutes);
 app.use(
   "/api/admin/uploads",
