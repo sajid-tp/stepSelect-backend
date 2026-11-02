@@ -154,7 +154,15 @@ const getOrder = async (orderRef) => {
 
   return {
     ...view,
-    items: view.items.map((v) => ({ ...v, allowedStatuses: itemAllowedStatuses(order, rawById.get(v.id)) })),
+    items: view.items.map((v) => {
+      const raw = rawById.get(v.id);
+      return {
+        ...v,
+        allowedStatuses: itemAllowedStatuses(order, raw),
+        returnRestockedQuantity: raw.returnRestockedQuantity || 0,
+        returnDiscardedQuantity: raw.returnDiscardedQuantity || 0,
+      };
+    }),
     user: toUserView(user),
   };
 };
@@ -288,8 +296,10 @@ const updateOrderStatus = async (orderRef, newStatus) => {
   return getOrder(order._id);
 };
 
-// 4. Approve or reject a return request for one item
-const handleReturn = async (orderRef, itemId, action, reason) => {
+// 4. Approve or reject a return request for one item.
+//    On approve, `restock` tells whether the returned units go back into the shop's stock
+//    (false for e.g. damaged shoes). It defaults to true, which is how returns always worked.
+const handleReturn = async (orderRef, itemId, action, reason, restock) => {
   if (!['approve', 'reject'].includes(action)) {
     throw createError(MESSAGES.ORDER.INVALID_RETURN_ACTION, STATUS.BAD_REQUEST);
   }
@@ -302,6 +312,8 @@ const handleReturn = async (orderRef, itemId, action, reason) => {
   if (action === 'reject' && !cleanReason) {
     throw createError('Please give a reason for rejecting the return.', STATUS.BAD_REQUEST);
   }
+
+  const addToStock = restock !== false && restock !== 'false';
 
   const order = await findOrder(orderRef);
 
@@ -321,6 +333,10 @@ const handleReturn = async (orderRef, itemId, action, reason) => {
     item.returnedQuantity = (item.returnedQuantity || 0) + requestedQty;
     item.returnRequestedQuantity = 0;
 
+    // keep a record of the admin's stock decision for these units
+    if (addToStock) item.returnRestockedQuantity = (item.returnRestockedQuantity || 0) + requestedQty;
+    else item.returnDiscardedQuantity = (item.returnDiscardedQuantity || 0) + requestedQty;
+
     // Everything returned -> "returned". Only some units returned -> back to "delivered"
     // so the customer can still return the rest later.
     const delivered = item.deliveredQuantity || item.quantity - (item.cancelledQuantity || 0);
@@ -328,7 +344,7 @@ const handleReturn = async (orderRef, itemId, action, reason) => {
 
     pushHistory(item, ITEM_STATUS.RETURNED, `Return approved for ${requestedQty} unit(s)`);
     await item.save();
-    await restoreStock(item.variantId, item.size, requestedQty); // shoes go back on the shelf
+    if (addToStock) await restoreStock(item.variantId, item.size, requestedQty); // shoes go back on the shelf
 
     // The admin approved the return: put what these units cost (after their share of the coupon,
     // plus tax) into the customer's wallet. This also covers Cash on Delivery orders.

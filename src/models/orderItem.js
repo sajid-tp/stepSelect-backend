@@ -54,6 +54,10 @@ const orderItemSchema = new mongoose.Schema(
     
     returnRequestedQuantity: { type: Number, default: 0 },
 
+    // What the admin decided for approved returns: units put back on the shelf / units NOT added to stock
+    returnRestockedQuantity: { type: Number, default: 0 },
+    returnDiscardedQuantity: { type: Number, default: 0 },
+
     returnRejectReason: { type: String, default: null },
     returnRejectedAt: { type: Date, default: null },
   },

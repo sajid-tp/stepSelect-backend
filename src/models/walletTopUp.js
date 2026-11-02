@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 const { WALLET_TOPUP_STATUS } = require('../constants/walletConstants');
 
-// One row per "Add money" attempt. It is created on the SERVER before Razorpay opens, so the amount
-// that gets credited is always the amount stored here, never a number sent back by the browser.
-// Amounts are in PAISE (see models/wallet.js).
 const walletTopUpSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
