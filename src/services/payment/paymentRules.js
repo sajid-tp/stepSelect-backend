@@ -86,8 +86,9 @@ const describeRetryState = (order, now = Date.now()) => {
   const secondsLeft = held ? Math.max(0, Math.ceil((expiresAt.getTime() - now) / 1000)) : 0;
   const attemptInProgress = held && isAttemptInProgress(order, now);
 
-  // The cool-down only exists before the FINAL attempt (everything after the free attempts)
-  const needsCooldown = attemptsUsed >= immediateAttempts() && attemptsUsed < max;
+  // The cool-down only exists before the FINAL attempt (everything after the free attempts).
+  // It is not shown while an attempt is still running: lastFailedAt then belongs to the PREVIOUS attempt.
+  const needsCooldown = attemptsUsed >= immediateAttempts() && attemptsUsed < max && !attemptInProgress;
   let failedAtMs = order.payment?.lastFailedAt ? new Date(order.payment.lastFailedAt).getTime() : null;
   // A stale unfinished attempt is treated as failed at the moment its window ended
   if (held && order.payment?.attemptOpen && !attemptInProgress) {
@@ -113,6 +114,9 @@ const describeRetryState = (order, now = Date.now()) => {
     !attemptInProgress &&
     cooldownSecondsLeft === 0;
 
+  // The cool-down ends after the 30 minute hold does: the final attempt can never open
+  const cooldownOutlastsHold = held && closedReason === null && cooldownSecondsLeft > 0 && cooldownSecondsLeft > secondsLeft;
+
   // Is the attempt that would start next the final one?
   const nextAttemptIsFinal = held && attemptsUsed + 1 === max;
 
@@ -127,6 +131,7 @@ const describeRetryState = (order, now = Date.now()) => {
     attemptInProgress,
     cooldownSeconds: cooldownSeconds(),
     cooldownSecondsLeft,
+    cooldownOutlastsHold,
     cooldownEndsAt: cooldownEndsAtMs && cooldownSecondsLeft > 0 ? new Date(cooldownEndsAtMs).toISOString() : null,
     holdMinutes: holdMinutes(),
     holdExpiresAt: expiresAt.toISOString(),
