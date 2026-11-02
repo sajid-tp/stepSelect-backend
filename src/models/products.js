@@ -16,19 +16,30 @@ const productSchema = mongoose.Schema(
 
     brandId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'brand',
+      ref: 'Brand',
       required: true,
     },
 
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'category',
+      ref: 'Category',
       required: true,
     },
 
+    gender: { 
+      type: String, 
+      enum: ['men', 'women', 'unisex'], 
+      required: true 
+    },
+    
     isActive: {
       type: Boolean,
       default: true,
+    },
+
+     deletedAt:{
+      type : Date,
+      default : null,
     },
   },
   {

@@ -1,5 +1,7 @@
 // src/utils/jwt.js
 const jwt = require('jsonwebtoken');
+const STATUS = require('../constants/statusCodes');
+const MESSAGES = require('../constants/messages');
 
 // 1. Generate Tokens
 const generateAccessToken = (userId) => {
@@ -41,8 +43,8 @@ const verifyRefreshToken = (token) => {
 const verifyResetToken = (token) => {
   const payload = jwt.verify(token, process.env.RESET_TOKEN_SECRET || process.env.JWT_SECRET);
   if (payload.purpose !== 'reset') {
-    const error = new Error('Invalid reset token');
-    error.statusCode = 400;
+    const error = new Error(MESSAGES.AUTH.INVALID_RESET_TOKEN);
+    error.statusCode = STATUS.BAD_REQUEST;
     throw error;
   }
   return payload;
@@ -86,8 +88,9 @@ const sendAdminTokenCookie = (res, token) => {
   });
 };
 
-const clearTokenCookies = (res) => {
+const clearUserTokenCookies = (res) => {
   const isProduction = process.env.NODE_ENV === 'production';
+
   const cookieOptions = {
     httpOnly: true,
     secure: isProduction,
@@ -95,8 +98,21 @@ const clearTokenCookies = (res) => {
   };
 
   res.clearCookie('accessToken', { ...cookieOptions, path: '/' });
-  res.clearCookie('refreshToken', { ...cookieOptions, path: '/api/auth/refresh' });
-  res.clearCookie('token', { ...cookieOptions, path: '/' });
+  res.clearCookie('refreshToken', {
+    ...cookieOptions,
+    path: '/api/auth/refresh',
+  });
+};
+
+const clearAdminTokenCookie = (res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'strict' : 'lax',
+    path: '/',
+  });
 };
 
 module.exports = {
@@ -109,5 +125,6 @@ module.exports = {
   verifyResetToken,
   sendTokenCookies,
   sendAdminTokenCookie,
-  clearTokenCookies,
+  clearUserTokenCookies,
+  clearAdminTokenCookie
 };

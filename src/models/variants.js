@@ -26,7 +26,7 @@ const variantSchema = mongoose.Schema(
       required: true,
     },
 
-    size: {
+    sizes: {
       type: [sizeSchema],
       required: true,
     },
@@ -54,17 +54,15 @@ const variantSchema = mongoose.Schema(
       min: 0,
     },
 
-    sku: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
-    },
-
     isActive: {
       type: Boolean,
       default: true,
     },
+    deletedAt:{
+      type : Date,
+      default : null,
+    },
+
   },
   {
     timestamps: true,

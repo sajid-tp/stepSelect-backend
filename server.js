@@ -1,37 +1,97 @@
 require('dotenv').config();
 
+
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 const connectDB = require('./src/config/db');
+const errorHandler = require('./src/middleware/errorHandler');
+const notFoundMiddleware = require('./src/middleware/notFoundMiddleware');
 
 const authRoutes = require('./src/routes/user/authRoutes');
 const adminAuthRoutes = require('./src/routes/admin/authRoutes');
 const adminUserRoutes = require('./src/routes/admin/userRoutes');
 const accountRoutes = require('./src/routes/user/profileRoutes');
 const addressRoutes = require('./src/routes/user/addressRoutes');
+const productRoutes = require('./src/routes/user/productRoutes');
+const categoryRoutes = require('./src/routes/user/categoryRoutes');
+const brandRoutes = require('./src/routes/user/brandRoutes');
+const cartRoutes = require('./src/routes/user/cartRoutes');
+const wishlistRoutes = require('./src/routes/user/wishlistRoutes');
+const checkoutRoutes = require('./src/routes/user/checkoutRoutes');
+const orderRoutes = require('./src/routes/user/orderRoutes');
+const paymentRoutes = require('./src/routes/user/paymentRoutes');
+const walletRoutes = require('./src/routes/user/walletRoutes');
+const { startPaymentWorker } = require('./src/services/payment/paymentWorker');
+const couponRoutes = require('./src/routes/user/couponRoutes');
+const adminOrderRoutes = require('./src/routes/admin/orderRoutes');
+const adminSalesReportRoutes = require('./src/routes/admin/salesReportRoutes');
+const adminDashboardRoutes = require('./src/routes/admin/dashboardRoutes');
+const adminBannerRoutes = require('./src/routes/admin/bannerRoutes');
+const bannerRoutes = require('./src/routes/user/bannerRoutes');
+const adminInventoryRoutes = require('./src/routes/admin/inventoryRoutes');
 const adminCategoryRoutes = require('./src/routes/admin/categoryRoutes');
+const adminBrandRoutes = require('./src/routes/admin/brandRoutes');
+const adminProducts = require('./src/routes/admin/productRoutes');
+const adminVariants = require('./src/routes/admin/variantRoutes');
+const adminCouponRoutes = require('./src/routes/admin/couponRoutes');
+const adminOfferRoutes = require('./src/routes/admin/offerRoutes');
+const referralRoutes = require('./src/routes/user/referralRoutes');
+const adminUploadRoutes =
+  require("./src/routes/admin/uploadRoutes");
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.CLIENT_URL,
   credentials: true
 }));
 
-app.use(express.json());
+// rawBody is kept so the Razorpay webhook signature can be checked
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
 connectDB();
+startPaymentWorker(); // closes unpaid online orders after 30 minutes / 4 failed attempts and gives the stock back
 
 app.use('/api/auth', authRoutes);
 app.use('/api/account',accountRoutes);
 app.use('/api/addresses',addressRoutes);
+app.use('/api/products',productRoutes);
+app.use('/api/categories',categoryRoutes);
+app.use('/api/brands',brandRoutes);
+app.use('/api/cart',cartRoutes);
+app.use('/api/wishlist',wishlistRoutes);
+app.use('/api/checkout',checkoutRoutes);
+app.use('/api/orders',orderRoutes);
+app.use('/api/payments',paymentRoutes);
+app.use('/api/wallet',walletRoutes);
+app.use('/api/coupons',couponRoutes);
+app.use('/api/referrals', referralRoutes);
+app.use('/api/banners', bannerRoutes);
 
 //admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/users',adminUserRoutes);
 app.use('/api/admin/categories',adminCategoryRoutes);
+app.use('/api/admin/brands', adminBrandRoutes);
+app.use('/api/admin/products',adminProducts);
+app.use('/api/admin/variants',adminVariants);
+app.use('/api/admin/coupons', adminCouponRoutes);
+app.use('/api/admin/offers', adminOfferRoutes);
+app.use('/api/admin/orders',adminOrderRoutes);
+app.use('/api/admin/sales-report', adminSalesReportRoutes);
+app.use('/api/admin/dashboard', adminDashboardRoutes);
+app.use('/api/admin/banners', adminBannerRoutes);
+app.use('/api/admin/inventory',adminInventoryRoutes);
+app.use(
+  "/api/admin/uploads",
+  adminUploadRoutes
+);
+
+app.use(notFoundMiddleware);
+// Error handler: must stay LAST, after every route
+app.use(errorHandler);
 
 
 const PORT = process.env.PORT || 5000;

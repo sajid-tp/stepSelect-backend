@@ -1,26 +1,29 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
 const brandSchema = mongoose.Schema(
   {
-    name: {
+    brandName: {
       type: String,
       required: true,
-      unique: true,
+      trim: true,
     },
-    slug: {
-      type: String,
-      required: true,
-      unique: true,
-    },
+
     description: {
       type: String,
     },
+
     logo: {
       type: String,
     },
+
     isActive: {
       type: Boolean,
       default: true,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
     },
   },
   {
@@ -28,6 +31,21 @@ const brandSchema = mongoose.Schema(
   }
 );
 
-const brandModel = mongoose.model('brand', brandSchema);
+// Case-insensitive unique brand name
+brandSchema.index(
+  { brandName: 1 },
+  {
+    unique: true,
+    collation: {
+      locale: 'en',
+      strength: 2,
+    },
+    partialFilterExpression: {
+      deletedAt: { $type: 'null' },
+    },
+  }
+);
 
-export default brandModel;
+const brandModel = mongoose.model('Brand', brandSchema);
+
+module.exports = brandModel;
