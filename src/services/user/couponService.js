@@ -188,7 +188,8 @@ const resolveAppliedCoupon = async (userId, cart, base) => {
 };
 
 
-const redeemCoupon = async (couponId) => {
+// options.session (optional): run inside a MongoDB transaction (see utils/transaction.js)
+const redeemCoupon = async (couponId, { session } = {}) => {
   const updated = await Coupon.findOneAndUpdate(
     {
       _id: couponId,
@@ -202,15 +203,16 @@ const redeemCoupon = async (couponId) => {
       },
     },
     { $inc: { usedCount: 1 } },
-    { returnDocument: 'after' }
+    { returnDocument: 'after', session }
   );
   return Boolean(updated);
 };
 
 
-const releaseCoupon = async (couponId) => {
+// options.session (optional): run inside a MongoDB transaction (see utils/transaction.js)
+const releaseCoupon = async (couponId, { session } = {}) => {
   if (!couponId) return;
-  await Coupon.updateOne({ _id: couponId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } });
+  await Coupon.updateOne({ _id: couponId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } }, { session });
 };
 
 module.exports = {

@@ -23,7 +23,7 @@ const checkoutRoutes = require('./src/routes/user/checkoutRoutes');
 const orderRoutes = require('./src/routes/user/orderRoutes');
 const paymentRoutes = require('./src/routes/user/paymentRoutes');
 const walletRoutes = require('./src/routes/user/walletRoutes');
-const { startSweeper } = require('./src/services/payment/unpaidOrders');
+const { startPaymentWorker } = require('./src/services/payment/paymentWorker');
 const couponRoutes = require('./src/routes/user/couponRoutes');
 const adminOrderRoutes = require('./src/routes/admin/orderRoutes');
 const adminSalesReportRoutes = require('./src/routes/admin/salesReportRoutes');
@@ -52,7 +52,7 @@ app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
 connectDB();
-startSweeper(); // gives back stock held by online orders that were never paid
+startPaymentWorker(); // closes unpaid online orders after 30 minutes / 4 failed attempts and gives the stock back
 
 app.use('/api/auth', authRoutes);
 app.use('/api/account',accountRoutes);

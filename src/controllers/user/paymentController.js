@@ -8,8 +8,8 @@ const ERROR_CODES = require('../../constants/errorCodes');
   POST /api/payments/initiate                  { addressId, gateway }   -> data { orderNumber, gateway, ...gateway data }
   POST /api/payments/wallet/pay                { addressId }            -> data = payment status (order is paid at once)
   POST /api/payments/razorpay/verify           { orderNumber, razorpay_order_id, razorpay_payment_id, razorpay_signature }
-  POST /api/payments/:orderNumber/failed       { reason }
-  POST /api/payments/:orderNumber/retry        { gateway? }
+  POST /api/payments/:orderNumber/failed       { reason, paymentId? }   (the open attempt failed; 4 attempts per order, see services/payment/paymentRules.js)
+  POST /api/payments/:orderNumber/retry        { gateway? }             (same order; the 4th and final attempt opens only after the 2 minute cool-down)
   POST /api/payments/:orderNumber/abandon
   GET  /api/payments/:orderNumber/status
   POST /api/payments/webhook/razorpay          (called by Razorpay, no login)
@@ -38,7 +38,8 @@ const verifyRazorpay = async (req, res) => {
 };
 
 const reportFailure = async (req, res) => {
-  const data = await paymentService.reportFailure(getUserId(req), req.params.orderNumber, (req.body || {}).reason);
+  const { reason, paymentId } = req.body || {};
+  const data = await paymentService.reportFailure(getUserId(req), req.params.orderNumber, reason, paymentId);
   return res.status(STATUS.OK).json({ data });
 };
 

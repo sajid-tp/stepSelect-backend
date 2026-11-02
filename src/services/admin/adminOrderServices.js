@@ -14,10 +14,9 @@ const {
   PAYMENT_METHODS,
   unpaidOnlineFilter,
 } = require('../../constants/orderConstants');
-const { isObjectId, escapeRegex, restoreStock, calculateTotals, pushHistory } = require('../../utils/orderHelpers');
-const { toOrderView } = require('../user/orderService');
+const { isObjectId, escapeRegex, restoreStock, pushHistory, remainingQuantity } = require('../../utils/orderHelpers');
+const { toOrderView, refreshOrderAfterCancel, syncOrderStatus } = require('../user/orderService');
 const { refundOrder } = require('../payment/refundService');
-const referralService = require('../user/referralService');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
@@ -53,7 +52,16 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
   // Online orders that were never paid are not real orders yet
   const filter = { $nor: [unpaidOnlineFilter()] };
 
-  if (status && Object.values(ORDER_STATUS).includes(status)) filter.status = status;
+  // Orders that have a product waiting for the admin to approve / reject its return.
+  // (also gives the number shown on the "Returns" tab, whatever the other filters are)
+  const returnOrderIds = await OrderItem.distinct('orderId', { status: ITEM_STATUS.RETURN_REQUESTED });
+
+  if (status === ITEM_STATUS.RETURN_REQUESTED) {
+    // the "Returns" tab
+    filter._id = { $in: returnOrderIds };
+  } else if (status && Object.values(ORDER_STATUS).includes(status)) {
+    filter.status = status;
+  }
 
   // Date range on the order date (from / to as YYYY-MM-DD)
   if (from || to) {
@@ -86,7 +94,13 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
 
   const counts = await OrderItem.aggregate([
     { $match: { orderId: { $in: orders.map((o) => o._id) } } },
-    { $group: { _id: '$orderId', count: { $sum: 1 } } },
+    {
+      $group: {
+        _id: '$orderId',
+        count: { $sum: 1 },
+        returnRequests: { $sum: { $cond: [{ $eq: ['$status', ITEM_STATUS.RETURN_REQUESTED] }, 1, 0] } },
+      },
+    },
   ]);
 
   return {
@@ -99,8 +113,11 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
       paymentStatus: o.paymentStatus,
       totalAmount: o.totalAmount,
       itemCount: (counts.find((c) => String(c._id) === String(o._id)) || {}).count || 0,
+      // products of this order whose return the admin still has to decide on (orange pill in the list)
+      returnRequestCount: (counts.find((c) => String(c._id) === String(o._id)) || {}).returnRequests || 0,
       user: toUserView(o.userId),
     })),
+    pendingReturnOrders: returnOrderIds.length,
     pagination: {
       page: pageNum,
       limit: limitNum,
@@ -110,7 +127,21 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
   };
 };
 
-// 2. One order with customer details
+// Item statuses the admin can still move on from. Delivered is final (after that the customer may ask for a return).
+const OPEN_ITEM_STATUSES = [ITEM_STATUS.PENDING, ITEM_STATUS.SHIPPED, ITEM_STATUS.OUT_FOR_DELIVERY];
+
+// An online order can only move forward once its payment has arrived (Cash on Delivery pays at the door)
+const isPayable = (order) => order.paymentMethod === PAYMENT_METHODS.COD || order.paymentStatus === PAYMENT_STATUS.PAID;
+
+// What the status dropdown of ONE product can offer right now:
+// forward only (pending -> shipped -> out_for_delivery -> delivered), or cancel before it is delivered.
+const itemAllowedStatuses = (order, item) => {
+  if (!OPEN_ITEM_STATUSES.includes(item.status) || remainingQuantity(item) < 1) return [];
+  const forward = isPayable(order) ? STATUS_FLOW.slice(STATUS_FLOW.indexOf(item.status) + 1) : [];
+  return [...forward, ORDER_STATUS.CANCELLED];
+};
+
+// 2. One order with customer details. Every item carries its own `allowedStatuses`.
 const getOrder = async (orderRef) => {
   const order = await findOrder(orderRef);
   const [items, user] = await Promise.all([
@@ -118,107 +149,140 @@ const getOrder = async (orderRef) => {
     User.findById(order.userId).select('username email phoneNumber'),
   ]);
 
-  const nextIndex = STATUS_FLOW.indexOf(order.status) + 1;
-  const canChange = ![ORDER_STATUS.DELIVERED, ORDER_STATUS.CANCELLED].includes(order.status);
+  const view = toOrderView(order, items);
+  const rawById = new Map(items.map((i) => [String(i._id), i]));
 
   return {
-    ...toOrderView(order, items),
+    ...view,
+    items: view.items.map((v) => ({ ...v, allowedStatuses: itemAllowedStatuses(order, rawById.get(v.id)) })),
     user: toUserView(user),
-    // Statuses the admin dropdown can offer right now
-    allowedStatuses: canChange
-      ? [...STATUS_FLOW.slice(nextIndex), ORDER_STATUS.CANCELLED]
-      : [],
   };
 };
 
-// Internal Helper: cancel every item that has not been delivered yet, give the stock back
-const cancelAllOpenItems = async (order, note) => {
-  const items = await OrderItem.find({
-    orderId: order._id,
-    status: { $in: [ITEM_STATUS.PENDING, ITEM_STATUS.SHIPPED, ITEM_STATUS.OUT_FOR_DELIVERY] },
-  });
+const conflict = (message) => createError(message, STATUS.CONFLICT, ERROR_CODES.INVALID_STATUS_TRANSITION);
 
-  for (const item of items) {
-    const done = await OrderItem.findOneAndUpdate(
-      { _id: item._id, status: item.status },
-      {
-        $set: {
-          status: ITEM_STATUS.CANCELLED,
-          cancelledQuantity: item.quantity,
-          cancelReason: note,
-          cancelledAt: new Date(),
-        },
-        $push: { statusHistory: { status: ITEM_STATUS.CANCELLED, note, updatedAt: new Date() } },
-      }
-    );
-    if (done) await restoreStock(item.variantId, item.size, item.quantity);
+// Can this item go to `newStatus`? Throws a readable error when it cannot.
+const checkItemChange = (order, item, newStatus) => {
+  const current = item.status;
+
+  if (current === ITEM_STATUS.DELIVERED) throw conflict(MESSAGES.ORDER.ITEM_ALREADY_DELIVERED);
+  if (current === ITEM_STATUS.CANCELLED) throw conflict(MESSAGES.ORDER.ITEM_ALREADY_CANCELLED);
+  if (!OPEN_ITEM_STATUSES.includes(current)) throw conflict(MESSAGES.ORDER.ITEM_HAS_RETURN);
+
+  if (newStatus === current) throw conflict(MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus));
+  if (newStatus === ORDER_STATUS.CANCELLED) return;
+
+  if (!isPayable(order)) throw conflict(MESSAGES.ORDER.PAYMENT_NOT_RECEIVED);
+
+  if (STATUS_FLOW.indexOf(newStatus) <= STATUS_FLOW.indexOf(current)) {
+    throw conflict(MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus));
   }
 };
 
-// 3. Change order status. Forward only: pending -> shipped -> out_for_delivery -> delivered. Cancel before delivery.
+// Move ONE item forward. Every stage it passes gets a history line, so the customer's
+// "Track item" timeline has no gaps even when the admin skips a step.
+const moveItemForward = async (item, newStatus) => {
+  const from = STATUS_FLOW.indexOf(item.status);
+  const to = STATUS_FLOW.indexOf(newStatus);
+  const now = new Date();
+
+  const history = STATUS_FLOW.slice(from + 1, to + 1).map((status) => ({
+    status,
+    note: 'Updated by admin',
+    updatedAt: now,
+  }));
+
+  const $set = { status: newStatus };
+  if (newStatus === ORDER_STATUS.DELIVERED) $set.deliveredQuantity = remainingQuantity(item); // cancelled units were never delivered
+
+  // Only matches while the item is still where we saw it, so two admins cannot apply the same step twice
+  const done = await OrderItem.findOneAndUpdate(
+    { _id: item._id, status: item.status },
+    { $set, $push: { statusHistory: { $each: history } } }
+  );
+  if (!done) throw conflict(MESSAGES.ORDER.ITEM_STATUS_CHANGED_ELSEWHERE);
+};
+
+// Cancel ONE item (all units that are left) and put the shoes back on the shelf.
+// Prices, coupon share and the refund are worked out afterwards by refreshOrderAfterCancel.
+const cancelItemByAdmin = async (item) => {
+  const left = remainingQuantity(item);
+  const now = new Date();
+
+  const done = await OrderItem.findOneAndUpdate(
+    { _id: item._id, status: item.status },
+    {
+      $set: { status: ITEM_STATUS.CANCELLED, cancelledQuantity: item.quantity, cancelReason: 'Cancelled by admin', cancelledAt: now },
+      $push: { statusHistory: { status: ITEM_STATUS.CANCELLED, note: `Cancelled ${left} unit(s) by admin`, updatedAt: now } },
+    }
+  );
+  if (!done) throw conflict(MESSAGES.ORDER.ITEM_STATUS_CHANGED_ELSEWHERE);
+
+  await restoreStock(item.variantId, item.size, left);
+};
+
+// After items changed: recount the order (totals + refund for cancels) or just follow the items' status
+const finishChange = (order, cancelled) =>
+  cancelled ? refreshOrderAfterCancel(order, 'Cancelled by admin') : syncOrderStatus(order._id);
+
+// 3. Change the status of ONE product of an order (the admin's main action).
+//    Forward only: pending -> shipped -> out_for_delivery -> delivered. Cancel any time before delivery.
+//    The order's own status then follows its items by itself.
+const updateItemStatus = async (orderRef, itemId, newStatus) => {
+  if (!Object.values(ORDER_STATUS).includes(newStatus)) {
+    throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
+  }
+  if (!isObjectId(itemId)) {
+    throw createError(MESSAGES.ORDER.INVALID_ITEM_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ITEM_ID);
+  }
+
+  const order = await findOrder(orderRef);
+  const item = await OrderItem.findOne({ _id: itemId, orderId: order._id });
+  if (!item) {
+    throw createError(MESSAGES.ORDER.ITEM_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.ORDER_ITEM_NOT_FOUND);
+  }
+
+  checkItemChange(order, item, newStatus);
+
+  const cancelled = newStatus === ORDER_STATUS.CANCELLED;
+  if (cancelled) await cancelItemByAdmin(item);
+  else await moveItemForward(item, newStatus);
+
+  await finishChange(order, cancelled);
+  return getOrder(order._id);
+};
+
+// Same thing for every open item at once (kept for the shorter Postman route PATCH /orders/:orderId).
+// Items that are already at or past `newStatus`, delivered, cancelled or in a return are left alone.
 const updateOrderStatus = async (orderRef, newStatus) => {
   if (!Object.values(ORDER_STATUS).includes(newStatus)) {
     throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
   }
 
   const order = await findOrder(orderRef);
-  const current = order.status;
+  const cancelled = newStatus === ORDER_STATUS.CANCELLED;
 
-  if (current === ORDER_STATUS.CANCELLED || current === ORDER_STATUS.DELIVERED || newStatus === current) {
-    throw createError(
-      MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus),
-      STATUS.CONFLICT,
-      ERROR_CODES.INVALID_STATUS_TRANSITION
-    );
+  const openItems = await OrderItem.find({ orderId: order._id, status: { $in: OPEN_ITEM_STATUSES } });
+  const targets =
+    newStatus === ORDER_STATUS.PENDING
+      ? []
+      : openItems.filter((i) => cancelled || STATUS_FLOW.indexOf(i.status) < STATUS_FLOW.indexOf(newStatus));
+
+  if (targets.length === 0) {
+    throw conflict(MESSAGES.ORDER.INVALID_STATUS_TRANSITION(order.status, newStatus));
   }
+  if (!cancelled && !isPayable(order)) throw conflict(MESSAGES.ORDER.PAYMENT_NOT_RECEIVED);
 
-  if (newStatus === ORDER_STATUS.CANCELLED) {
-    await cancelAllOpenItems(order, 'Cancelled by admin');
-    order.status = ORDER_STATUS.CANCELLED;
-    order.cancelledAt = new Date();
-    order.cancelReason = 'Cancelled by admin';
-    await order.save();
-    await refundOrder(order, null, { reason: 'cancel' }); // paid (Razorpay / wallet): money goes to the wallet at once (COD / unpaid: does nothing)
-    return getOrder(order._id);
-  }
-
-  // An online order can only move forward once its payment has arrived
-  if (order.paymentMethod !== PAYMENT_METHODS.COD && order.paymentStatus !== PAYMENT_STATUS.PAID) {
-    throw createError('Payment has not been received for this order yet.', STATUS.CONFLICT, ERROR_CODES.INVALID_STATUS_TRANSITION);
-  }
-
-  if (STATUS_FLOW.indexOf(newStatus) <= STATUS_FLOW.indexOf(current)) {
-    throw createError(
-      MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus),
-      STATUS.CONFLICT,
-      ERROR_CODES.INVALID_STATUS_TRANSITION
-    );
-  }
-
-  // Move every item that is still in the normal flow (cancelled / return items are left alone)
-  const items = await OrderItem.find({ orderId: order._id, status: { $in: STATUS_FLOW } });
-  for (const item of items) {
-    item.status = newStatus;
-    item.statusHistory.push({ status: newStatus, note: 'Updated by admin', updatedAt: new Date() });
-    if (newStatus === ORDER_STATUS.DELIVERED) item.deliveredQuantity = item.quantity;
-    await item.save();
-  }
-
-  order.status = newStatus;
-  if (newStatus === ORDER_STATUS.DELIVERED) {
-    order.deliveredAt = new Date();
-    if (order.paymentMethod === PAYMENT_METHODS.COD) order.paymentStatus = PAYMENT_STATUS.PAID; // cash collected on delivery
-  }
-  await order.save();
-
-  // A referred friend's first order has arrived: pay the person who referred them.
-  // (A failure here must never undo the delivery, so it is only logged.)
-  if (newStatus === ORDER_STATUS.DELIVERED) {
-    try {
-      await referralService.rewardReferrerForOrder(order);
-    } catch (err) {
-      console.error('Referral reward failed for order', order.orderNumber, err.message);
+  let changed = 0;
+  try {
+    for (const item of targets) {
+      if (cancelled) await cancelItemByAdmin(item);
+      else await moveItemForward(item, newStatus);
+      changed += 1;
     }
+  } finally {
+    // even if one item failed, the items that did move must be counted / refunded
+    if (changed > 0) await finishChange(order, cancelled);
   }
 
   return getOrder(order._id);
@@ -290,4 +354,4 @@ const handleReturn = async (orderRef, itemId, action, reason) => {
   return getOrder(order._id);
 };
 
-module.exports = { getOrders, getOrder, updateOrderStatus, handleReturn };
+module.exports = { getOrders, getOrder, updateItemStatus, updateOrderStatus, handleReturn };

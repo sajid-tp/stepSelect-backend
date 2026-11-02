@@ -76,7 +76,7 @@ const refreshToken = async (req, res) => {
     return res.status(STATUS.OK).json({ message: MESSAGES.AUTH.ACCESS_TOKEN_REFRESHED });
   } catch (err) {
     // If the 7-day refresh token expired, purge cookies so the user re-authenticates
-    clearTokenCookies(res);
+    clearUserTokenCookies(res);
     // Any failure while refreshing means the session is over, so it is always a 401
     throw err.statusCode ? err : createError(err.message || MESSAGES.AUTH.SESSION_EXPIRED, STATUS.UNAUTHORIZED);
   }

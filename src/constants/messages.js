@@ -47,7 +47,7 @@ const MESSAGES = Object.freeze({
     RESET_LINK_EXPIRED_OR_INVALID_PLEASE_TRY_AGAIN: 'Reset link expired or invalid, please try again',
     SENT_SUCCESSFULLY: 'sent successfully',
     SESSION_EXPIRED: 'Session expired',
-    USERNAME_SHOULD_BE_6_CHARACTERS: 'Username should be 6 characters',
+    USERNAME_SHOULD_BE_6_CHARACTERS: 'Username should be between 6 and 10 characters',
     USER_ALREADY_EXISTS: 'User already exists',
     USER_IS_ALREADY_VERIFIED: 'User is already verified',
     USER_IS_BLOCKED: 'User is blocked',
@@ -255,6 +255,12 @@ const MESSAGES = Object.freeze({
 INVALID_QUANTITY: 'Quantity must be a whole number of 1 or more.',
 CANCEL_QUANTITY_EXCEEDS: 'You cannot cancel more units than are left in the order.',
 RETURN_QUANTITY_EXCEEDS: 'You cannot return more units than were delivered.',
+    // Admin: delivery status of one product (item) of an order
+    ITEM_STATUS_UPDATED: 'Item status updated.',
+    ITEM_ALREADY_DELIVERED: "This item is already delivered, so its status can't be changed any more.",
+    ITEM_HAS_RETURN: "This item has a return request or was returned, so its status can't be changed.",
+    ITEM_STATUS_CHANGED_ELSEWHERE: 'This item was just updated. Please refresh and try again.',
+    PAYMENT_NOT_RECEIVED: 'Payment has not been received for this order yet.',
   }),
 
   INVENTORY: Object.freeze({

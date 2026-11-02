@@ -35,7 +35,14 @@ const adminLogout = (req, res) => {
   });
 };
 
+// Lets the client check on page load / refresh whether the admin cookie is still valid.
+// The route is protected by protect('admin'), so reaching this point means the session is good.
+const adminMe = (req, res) => {
+  return res.status(STATUS.OK).json({ isAdmin: true });
+};
+
 module.exports = {
   adminLogin,
   adminLogout,
+  adminMe,
 };

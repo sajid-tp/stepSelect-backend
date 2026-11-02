@@ -6,9 +6,10 @@
 //
 // What counts as "paid":
 //   Razorpay / Wallet orders  -> the amount that was really paid (payment.paidInr)
-//   Cash on Delivery orders   -> only after delivery (paymentStatus becomes "paid"), so a return
-//                                gives the cash value back as wallet money. A COD order that is
-//                                cancelled before delivery has nothing to refund.
+//   Cash on Delivery orders   -> cash is only taken at the door, so only a RETURN of something that was
+//                                already delivered gives wallet money back (even while other items of the
+//                                same order are still on their way). A COD item that is cancelled before
+//                                delivery has nothing to refund.
 const Order = require('../../models/order');
 const { PAYMENT_METHODS, PAYMENT_STATUS } = require('../../constants/orderConstants');
 const { WALLET_SOURCE } = require('../../constants/walletConstants');
@@ -27,9 +28,11 @@ const refundOrder = async (order, amountInr = null, { reason = 'cancel', note = 
 
     // Read fresh numbers: the order object in the caller can be a little old
     const fresh = await Order.findById(order._id);
-    if (!fresh || fresh.paymentStatus !== PAYMENT_STATUS.PAID) return null;
+    if (!fresh) return null;
 
     const isCod = fresh.paymentMethod === PAYMENT_METHODS.COD;
+    // Online orders: only when the payment arrived. COD: only for a return (nothing was collected for a cancel)
+    if (isCod ? reason !== 'return' : fresh.paymentStatus !== PAYMENT_STATUS.PAID) return null;
     const paid = fresh.payment?.paidInr || (isCod ? fresh.totalAmount : 0);
     const refundedBefore = round2(fresh.payment?.refundedInr || 0);
     const left = round2(paid - refundedBefore);

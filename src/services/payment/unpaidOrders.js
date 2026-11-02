@@ -1,57 +1,90 @@
 // src/services/payment/unpaidOrders.js
 // An online order is created BEFORE the customer pays (so the shoes are held for them).
-// If the payment never completes, this file gives the stock and the coupon back.
+// If the payment never completes, this file closes the order as "Payment failed" and gives the
+// stock and the coupon back. (The rules themselves live in paymentRules.js.)
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
 const {
   ORDER_STATUS,
   ITEM_STATUS,
+  PAYMENT_STATUS,
   unpaidOnlineFilter,
 } = require('../../constants/orderConstants');
 const { restoreStock } = require('../../utils/orderHelpers');
 const { releaseCoupon } = require('../user/couponService');
+const { runInTransaction } = require('../../utils/transaction');
+const {
+  holdMinutes,
+  maxAttempts,
+  RELEASE_REASON,
+  closedReasonForRelease,
+  holdExpiresAt,
+  isHoldExpired,
+} = require('./paymentRules');
 
-// How long an unpaid online order may hold stock
-const holdMinutes = () => Number(process.env.PAYMENT_HOLD_MINUTES) || 30;
-
-// Cancel ONE unpaid online order and put everything back.
+// Close ONE unpaid online order and put everything back.
+// The order stays in the customer's Order History as "Payment failed" (status cancelled + paymentStatus failed),
+// but it is never shown to the admin and never counted as a sale.
 // The update only matches while the order is still unpaid, so two calls at the same time
 // (or a payment that just succeeded) can never release it twice.
-const releaseUnpaidOrder = async (order, reason = 'Payment not completed') => {
-  const claimed = await Order.findOneAndUpdate(
-    { _id: order._id, status: ORDER_STATUS.PENDING, ...unpaidOnlineFilter() },
-    { $set: { status: ORDER_STATUS.CANCELLED, cancelledAt: new Date(), cancelReason: reason } },
-    { new: true }
-  );
-  if (!claimed) return false;
-
-  const items = await OrderItem.find({ orderId: claimed._id });
-  for (const item of items) {
-    if (item.status === ITEM_STATUS.CANCELLED) continue;
-
-    const remaining = item.quantity - (item.cancelledQuantity || 0);
-    await OrderItem.updateOne(
-      { _id: item._id },
+// Everything below runs in ONE database transaction: the order is closed, the items are cancelled,
+// the stock and the coupon come back, or (if something fails half way) none of it happens and the
+// worker / the next call simply tries again. (Without transaction support it runs as before.)
+const releaseUnpaidOrder = async (order, reason = RELEASE_REASON.ABANDONED) =>
+  runInTransaction(async (session) => {
+    const now = new Date();
+    const claimed = await Order.findOneAndUpdate(
+      { _id: order._id, status: ORDER_STATUS.PENDING, ...unpaidOnlineFilter() },
       {
         $set: {
-          status: ITEM_STATUS.CANCELLED,
-          cancelledQuantity: item.quantity,
+          status: ORDER_STATUS.CANCELLED,
+          paymentStatus: PAYMENT_STATUS.FAILED,
+          cancelledAt: now,
           cancelReason: reason,
-          cancelledAt: new Date(),
+          'payment.attemptOpen': false,
+          'payment.closedReason': closedReasonForRelease(reason),
+          'payment.closedAt': now,
         },
-        $push: { statusHistory: { status: ITEM_STATUS.CANCELLED, note: reason, updatedAt: new Date() } },
-      }
+      },
+      { new: true, session }
     );
-    await restoreStock(item.variantId, item.size, remaining);
-  }
+    if (!claimed) return false;
 
-  await releaseCoupon(claimed.couponId);
-  return true;
-};
+    const itemsQuery = OrderItem.find({ orderId: claimed._id });
+    if (session) itemsQuery.session(session);
+    const items = await itemsQuery;
+    for (const item of items) {
+      if (item.status === ITEM_STATUS.CANCELLED) continue;
 
-// Every unpaid online order of one customer (called when they start a new checkout)
-const releaseUserUnpaidOrders = async (userId, reason = 'Payment not completed') => {
-  const orders = await Order.find({ userId, status: ORDER_STATUS.PENDING, ...unpaidOnlineFilter() });
+      const remaining = item.quantity - (item.cancelledQuantity || 0);
+      await OrderItem.updateOne(
+        { _id: item._id },
+        {
+          $set: {
+            status: ITEM_STATUS.CANCELLED,
+            cancelledQuantity: item.quantity,
+            cancelReason: reason,
+            cancelledAt: now,
+          },
+          $push: { statusHistory: { status: ITEM_STATUS.CANCELLED, note: reason, updatedAt: now } },
+        },
+        { session }
+      );
+      await restoreStock(item.variantId, item.size, remaining, { session });
+    }
+
+    await releaseCoupon(claimed.couponId, { session });
+    return true;
+  });
+
+// Unpaid online orders of one customer (called when they start a new checkout).
+// keepRetryable = true leaves alone the orders that already had a failed attempt and can still be retried
+// (the customer may come back to them from Order History).
+const releaseUserUnpaidOrders = async (userId, reason = RELEASE_REASON.ABANDONED, { keepRetryable = false } = {}) => {
+  const filter = { userId, status: ORDER_STATUS.PENDING, ...unpaidOnlineFilter() };
+  if (keepRetryable) filter['payment.attemptHistory.0'] = { $exists: false };
+
+  const orders = await Order.find(filter);
   let released = 0;
   for (const order of orders) {
     if (await releaseUnpaidOrder(order, reason)) released += 1;
@@ -59,37 +92,34 @@ const releaseUserUnpaidOrders = async (userId, reason = 'Payment not completed')
   return released;
 };
 
-// Unpaid online orders nobody came back to
+// Unpaid online orders whose 30 minutes are over. Retries and failed payments never move this clock:
+// it always counts from the moment the order was created.
 const sweepExpiredOrders = async () => {
   const cutoff = new Date(Date.now() - holdMinutes() * 60 * 1000);
   const orders = await Order.find({
     status: ORDER_STATUS.PENDING,
     ...unpaidOnlineFilter(),
-    updatedAt: { $lt: cutoff },
+    createdAt: { $lt: cutoff },
   }).limit(100);
 
+  let released = 0;
   for (const order of orders) {
     try {
-      await releaseUnpaidOrder(order, 'Payment timed out');
+      if (await releaseUnpaidOrder(order, RELEASE_REASON.TIMED_OUT)) released += 1;
     } catch (err) {
       console.error('Could not release unpaid order', order.orderNumber, err.message);
     }
   }
-};
-
-let timer = null;
-const startSweeper = () => {
-  if (timer) return;
-  timer = setInterval(() => {
-    sweepExpiredOrders().catch((err) => console.error('Unpaid order sweep failed:', err.message));
-  }, 5 * 60 * 1000);
-  timer.unref();
+  return released;
 };
 
 module.exports = {
   holdMinutes,
+  maxAttempts,
+  RELEASE_REASON,
+  holdExpiresAt,
+  isHoldExpired,
   releaseUnpaidOrder,
   releaseUserUnpaidOrders,
   sweepExpiredOrders,
-  startSweeper,
 };

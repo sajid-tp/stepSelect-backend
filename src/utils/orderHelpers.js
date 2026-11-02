@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Variant = require('../models/variants');
-const { PRICING } = require('../constants/orderConstants');
+const { PRICING, ORDER_STATUS, ITEM_STATUS, STATUS_FLOW } = require('../constants/orderConstants');
 
 const isObjectId = (id) => Boolean(id) && /^[0-9a-fA-F]{24}$/.test(String(id));
 
@@ -111,26 +111,56 @@ const allocateCouponShares = (lines, couponDiscount) => {
 
 // Take stock out. Atomic: the update only matches if enough stock is still there,
 // so two people buying the last pair at the same time can never both succeed.
-const reduceStock = async (variantId, size, quantity) => {
+// options.session (optional): run inside a MongoDB transaction (see utils/transaction.js)
+const reduceStock = async (variantId, size, quantity, { session } = {}) => {
   const result = await Variant.updateOne(
     { _id: variantId, sizes: { $elemMatch: { size: String(size), stock: { $gte: quantity } } } },
-    { $inc: { 'sizes.$.stock': -quantity } }
+    { $inc: { 'sizes.$.stock': -quantity } },
+    { session }
   );
   return result.modifiedCount === 1;
 };
 
 // Put stock back (cancel / approved return)
-const restoreStock = async (variantId, size, quantity) => {
+// options.session (optional): run inside a MongoDB transaction (see utils/transaction.js)
+const restoreStock = async (variantId, size, quantity, { session } = {}) => {
   if (!quantity || quantity < 1) return;
   await Variant.updateOne(
     { _id: variantId, 'sizes.size': String(size) },
-    { $inc: { 'sizes.$.stock': quantity } }
+    { $inc: { 'sizes.$.stock': quantity } },
+    { session }
   );
 };
 
 // Add a line to the item's status history
 const pushHistory = (item, status, note = '') => {
   item.statusHistory.push({ status, note, updatedAt: new Date() });
+};
+
+// Units of a line that are still part of the order (not cancelled)
+const remainingQuantity = (item) => (Number(item.quantity) || 0) - (Number(item.cancelledQuantity) || 0);
+
+// How far an item has travelled on the delivery flow (index in STATUS_FLOW).
+// Delivered, return requested, returned and rejected returns all mean "it was delivered".
+const ITEM_STAGE = Object.freeze({
+  [ITEM_STATUS.PENDING]: 0,
+  [ITEM_STATUS.SHIPPED]: 1,
+  [ITEM_STATUS.OUT_FOR_DELIVERY]: 2,
+  [ITEM_STATUS.DELIVERED]: 3,
+  [ITEM_STATUS.RETURN_REQUESTED]: 3,
+  [ITEM_STATUS.RETURNED]: 3,
+  [ITEM_STATUS.RETURN_REJECTED]: 3,
+});
+
+// The order status is never typed in by hand any more: it follows its items.
+//   - every item cancelled        -> cancelled
+//   - otherwise                   -> the LEAST advanced item that is still active
+//     (one pair still being packed = the order is still "pending", all delivered = "delivered")
+const deriveOrderStatus = (items) => {
+  const active = items.filter((i) => i.status !== ITEM_STATUS.CANCELLED && remainingQuantity(i) > 0);
+  if (active.length === 0) return ORDER_STATUS.CANCELLED;
+  const stage = Math.min(...active.map((i) => ITEM_STAGE[i.status] ?? 0));
+  return STATUS_FLOW[stage];
 };
 
 const first = (images) => {
@@ -151,6 +181,8 @@ module.exports = {
   reduceStock,
   restoreStock,
   pushHistory,
+  remainingQuantity,
+  deriveOrderStatus,
   firstImage: first,
   mongoose,
 };

@@ -24,6 +24,7 @@ const {
   restoreStock,
 } = require('../../utils/orderHelpers');
 const { buildLines } = require('../../utils/cartLines');
+const { runInTransaction } = require('../../utils/transaction');
 const couponService = require('./couponService');
 const { getEnabledMethods } = require('../payment/gateways');
 const { releaseUserUnpaidOrders } = require('../payment/unpaidOrders');
@@ -31,8 +32,9 @@ const walletService = require('./walletService');
 const referralService = require('./referralService');
 
 const getCheckoutSummary = async (userId) => {
-  // Shoes held by an earlier unpaid online attempt go back on the shelf, so they show up as available
-  await releaseUserUnpaidOrders(userId);
+  // Shoes held by an earlier online attempt that was never finished go back on the shelf, so they show up as available.
+  // An order that already had a failed payment and can still be retried is kept: the customer may come back to it.
+  await releaseUserUnpaidOrders(userId, undefined, { keepRetryable: true });
 
   const [cart, addresses, walletBalance] = await Promise.all([
     Cart.findOne({ userId }),
@@ -183,96 +185,117 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
   const totals = calculateTotals(lines, undefined, applied.discount, referral.discount);
 
 
-  const taken = [];
-  for (const l of lines) {
-    const ok = await reduceStock(l.variantId, l.size, l.quantity);
-    if (!ok) {
-      await rollbackStock(taken);
-      throw createError(MESSAGES.CHECKOUT.ITEM_OUT_OF_STOCK(l.name, l.size), STATUS.CONFLICT, ERROR_CODES.OUT_OF_STOCK);
-    }
-    taken.push(l);
-  }
-
-
-  let couponRedeemed = false;
-  if (coupon) {
-    couponRedeemed = await couponService.redeemCoupon(coupon._id);
-    if (!couponRedeemed) {
-      await rollbackStock(taken);
-      await couponService.clearAppliedCoupon(userId);
-      throw createError(MESSAGES.COUPON.COUPON_LIMIT_REACHED, STATUS.BAD_REQUEST, ERROR_CODES.COUPON_LIMIT_REACHED);
-    }
-  }
   const couponShares = allocateCouponShares(lines, totals.couponDiscount);
   const referralShares = allocateCouponShares(lines, totals.referralDiscount);
 
+  // Everything that must happen together: take the stock, use the coupon, create the order and its items.
+  // It runs inside ONE database transaction (utils/transaction.js): if any step fails, or the server
+  // stops half way, nothing stays changed. Without transaction support (a plain local MongoDB) the
+  // old manual clean-up below does the same job.
+  const createOrderRecords = async (session) => {
+    const taken = [];
+    let couponRedeemed = false;
+    let order = null;
+
+    try {
+      for (const l of lines) {
+        const ok = await reduceStock(l.variantId, l.size, l.quantity, { session });
+        if (!ok) {
+          throw createError(MESSAGES.CHECKOUT.ITEM_OUT_OF_STOCK(l.name, l.size), STATUS.CONFLICT, ERROR_CODES.OUT_OF_STOCK);
+        }
+        taken.push(l);
+      }
+
+      if (coupon) {
+        couponRedeemed = await couponService.redeemCoupon(coupon._id, { session });
+        if (!couponRedeemed) {
+          const limitError = createError(MESSAGES.COUPON.COUPON_LIMIT_REACHED, STATUS.BAD_REQUEST, ERROR_CODES.COUPON_LIMIT_REACHED);
+          limitError.clearCoupon = true; // the applied coupon is removed from the cart after the rollback
+          throw limitError;
+        }
+      }
+
+      const [created] = await Order.create(
+        [
+          {
+            orderNumber: generateOrderNumber(),
+            userId,
+            shippingAddress: {
+              name: address.name,
+              addressType: address.addressType,
+              detailedAddress: address.detailedAddress,
+              city: address.city,
+              country: address.country,
+              pinCode: address.pinCode,
+              phoneNumber: address.phoneNumber,
+              email: address.email || '',
+            },
+            ...totals,
+            couponId: coupon ? coupon._id : null,
+            couponCode: coupon ? coupon.couponCode : null,
+            // what the referrer is paid when this order is delivered (only when the referral offer was used)
+            referralReward: totals.referralDiscount > 0 ? referral.reward : 0,
+            status: ORDER_STATUS.PENDING,
+            paymentMethod: isOnline ? paymentMethod : PAYMENT_METHODS.COD,
+            paymentStatus: PAYMENT_STATUS.PENDING,
+          },
+        ],
+        { session }
+      );
+      order = created;
+
+      await OrderItem.insertMany(
+        lines.map((l, index) => ({
+          orderId: order._id,
+          productId: l.productId,
+          variantId: l.variantId,
+          name: l.name,
+          color: l.color,
+          size: l.size,
+          image: l.image,
+          price: l.price,
+          discountPercent: l.discountPercent,
+          offerName: l.offerName,
+          offerSource: l.offerSource,
+          finalPrice: l.finalPrice,
+          quantity: l.quantity,
+          itemTotal: l.itemTotal,
+          taxAmount: l.taxAmount,
+          couponShare: couponShares[index],
+          referralShare: referralShares[index],
+          status: ITEM_STATUS.PENDING,
+          statusHistory: [{ status: ITEM_STATUS.PENDING, note: 'Order placed', updatedAt: new Date() }],
+        })),
+        { session }
+      );
+
+      return order;
+    } catch (err) {
+      if (!session) {
+        // No transaction: undo by hand
+        await rollbackStock(taken);
+        if (couponRedeemed) await couponService.releaseCoupon(coupon._id);
+        if (order) {
+          await OrderItem.deleteMany({ orderId: order._id });
+          await Order.deleteOne({ _id: order._id });
+        }
+      }
+      throw err;
+    }
+  };
 
   let order = null;
-  try {
-    for (let attempt = 0; attempt < 5 && !order; attempt++) {
-      try {
-        order = await Order.create({
-          orderNumber: generateOrderNumber(),
-          userId,
-          shippingAddress: {
-            name: address.name,
-            addressType: address.addressType,
-            detailedAddress: address.detailedAddress,
-            city: address.city,
-            country: address.country,
-            pinCode: address.pinCode,
-            phoneNumber: address.phoneNumber,
-            email: address.email || '',
-          },
-          ...totals,
-          couponId: coupon ? coupon._id : null,
-          couponCode: coupon ? coupon.couponCode : null,
-          // what the referrer is paid when this order is delivered (only when the referral offer was used)
-          referralReward: totals.referralDiscount > 0 ? referral.reward : 0,
-          status: ORDER_STATUS.PENDING,
-          paymentMethod: isOnline ? paymentMethod : PAYMENT_METHODS.COD,
-          paymentStatus: PAYMENT_STATUS.PENDING,
-        });
-      } catch (err) {
-        if (err.code !== 11000) throw err; 
-      }
+  for (let attempt = 0; attempt < 5 && !order; attempt++) {
+    try {
+      order = await runInTransaction(createOrderRecords);
+    } catch (err) {
+      if (err.clearCoupon) await couponService.clearAppliedCoupon(userId);
+      // Two orders got the same random order number: everything was undone, try again with a new number
+      if (err.code === 11000 && attempt < 4) continue;
+      throw err;
     }
-    if (!order) throw new Error('Could not generate a unique order number');
-
-    await OrderItem.insertMany(
-      lines.map((l, index) => ({
-        orderId: order._id,
-        productId: l.productId,
-        variantId: l.variantId,
-        name: l.name,
-        color: l.color,
-        size: l.size,
-        image: l.image,
-        price: l.price,
-        discountPercent: l.discountPercent,
-        offerName: l.offerName,
-        offerSource: l.offerSource,
-        finalPrice: l.finalPrice,
-        quantity: l.quantity,
-        itemTotal: l.itemTotal,
-        taxAmount: l.taxAmount,
-        couponShare: couponShares[index],
-        referralShare: referralShares[index],
-        status: ITEM_STATUS.PENDING,
-        statusHistory: [{ status: ITEM_STATUS.PENDING, note: 'Order placed', updatedAt: new Date() }],
-      }))
-    );
-  } catch (err) {
-  
-    await rollbackStock(taken);
-    if (couponRedeemed) await couponService.releaseCoupon(coupon._id);
-    if (order) {
-      await OrderItem.deleteMany({ orderId: order._id });
-      await Order.deleteOne({ _id: order._id });
-    }
-    throw err;
   }
-
+  if (!order) throw new Error('Could not generate a unique order number');
 
   // Online orders empty the cart later, when the payment succeeds
   if (!isOnline) {

@@ -10,6 +10,9 @@ const ERROR_CODES = require('../../constants/errorCodes');
 const {
   ORDER_STATUS,
   ITEM_STATUS,
+  STATUS_FLOW,
+  PAYMENT_METHODS,
+  PAYMENT_STATUS,
   CANCEL_REASONS,
   RETURN_REASONS,
   unpaidOnlineFilter,
@@ -20,10 +23,13 @@ const {
   escapeRegex,
   calculateTotals,
   restoreStock,
+  deriveOrderStatus,
 } = require('../../utils/orderHelpers');
 
 const { releaseCoupon } = require('./couponService');
 const { refundOrder } = require('../payment/refundService');
+const { describeRetryState, getDisplayStatus, isUnpaidOnline } = require('../payment/paymentRules');
+const referralService = require('./referralService');
 
 
 
@@ -99,6 +105,15 @@ const findUserOrder = async (userId, orderRef) => {
 };
 
 
+
+const assertNotUnpaidOnline = (order) => {
+  if (isUnpaidOnline(order)) {
+    throw createError(
+      'The payment for this order is not completed. Retry or cancel the payment instead.',
+      STATUS.CONFLICT
+    );
+  }
+};
 
 const getCancelReason = (reason) => {
   if (reason === undefined || reason === null || String(reason).trim() === '') {
@@ -234,8 +249,11 @@ const toItemView = (item) => {
 
 
 const toOrderView = (order, items) => {
+  // Nothing of an unpaid order can be cancelled or returned item by item: its payment is retried or cancelled instead
+  const unpaidOnline = isUnpaidOnline(order);
   const itemViews = items.map((item) => {
-    return toItemView(item);
+    const view = toItemView(item);
+    return unpaidOnline ? { ...view, canCancel: false, maxCancelQuantity: 0, canReturn: false, maxReturnQuantity: 0 } : view;
   });
 
   const canCancel = itemViews.some((item) => item.canCancel);
@@ -246,6 +264,8 @@ const toOrderView = (order, items) => {
     orderNumber: order.orderNumber,
 
     status: order.status,
+    // payment_failed | payment_pending | the normal order status (what the customer sees as the badge)
+    displayStatus: getDisplayStatus(order),
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     payment: {
@@ -256,6 +276,8 @@ const toOrderView = (order, items) => {
       failureReason: order.payment?.failureReason || null,
       refundError: order.payment?.refundError || null,
     },
+    // Retry state of an unpaid online order (attempts, 30 minute hold, cool-down before the final attempt)
+    paymentFlow: isUnpaidOnline(order) ? describeRetryState(order) : null,
 
     createdAt: order.createdAt,
     deliveredAt: order.deliveredAt,
@@ -277,14 +299,67 @@ const toOrderView = (order, items) => {
     items: itemViews,
     itemCount: itemViews.length,
 
+    // An order that is not paid yet is not cancelled like a normal order: its payment is retried or cancelled instead
     canCancel:
-      order.status === ORDER_STATUS.PENDING && canCancel,
+      order.status === ORDER_STATUS.PENDING && canCancel && !isUnpaidOnline(order),
 
-    canReturn:
-      order.status === ORDER_STATUS.DELIVERED && canReturn,
+    // Each item is delivered on its own, so a delivered pair can be returned
+    // even while another pair of the same order is still on its way.
+    canReturn: canReturn && !isUnpaidOnline(order),
 
-    canDownloadInvoice: order.status !== ORDER_STATUS.CANCELLED,
+    canDownloadInvoice: order.status !== ORDER_STATUS.CANCELLED && !isUnpaidOnline(order),
   };
+};
+
+
+// The order status follows its items (see deriveOrderStatus in utils/orderHelpers.js).
+// Call this after ANY item moved: the admin updated an item, or an item was cancelled.
+// When the order becomes delivered it also does what must happen at that moment:
+// the delivered date, Cash on Delivery marked as paid, and the referral reward.
+// (An order whose items are ALL cancelled is closed by refreshOrderAfterCancel, not here.)
+const syncOrderStatus = async (orderRef) => {
+  const order = await Order.findById(orderRef._id || orderRef);
+  if (!order || order.status === ORDER_STATUS.CANCELLED) return order;
+
+  const items = await OrderItem.find({ orderId: order._id });
+  const next = deriveOrderStatus(items);
+
+  // Nothing changed, or all items are cancelled (handled by the cancel flow). Never move backwards.
+  if (next === order.status || next === ORDER_STATUS.CANCELLED) return order;
+  if (STATUS_FLOW.indexOf(next) < STATUS_FLOW.indexOf(order.status)) return order;
+
+  const set = { status: next };
+
+  if (next === ORDER_STATUS.DELIVERED) {
+    set.deliveredAt = new Date();
+
+    // Cash on Delivery: the cash is collected once everything has been handed over
+    if (order.paymentMethod === PAYMENT_METHODS.COD && order.paymentStatus === PAYMENT_STATUS.PENDING) {
+      const refunded = round2(order.payment?.refundedInr || 0);
+      set.paymentStatus =
+        refunded > 0 && refunded >= round2(order.totalAmount) ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PAID;
+    }
+  }
+
+  // Only one request can win this change, so the side effects below happen once
+  const claimed = await Order.findOneAndUpdate(
+    { _id: order._id, status: order.status },
+    { $set: set },
+    { returnDocument: 'after' }
+  );
+  if (!claimed) return Order.findById(order._id);
+
+  // A referred friend's first order has arrived: pay the person who referred them.
+  // (A failure here must never undo the delivery, so it is only logged.)
+  if (next === ORDER_STATUS.DELIVERED) {
+    try {
+      await referralService.rewardReferrerForOrder(claimed);
+    } catch (err) {
+      console.error('Referral reward failed for order', claimed.orderNumber, err.message);
+    }
+  }
+
+  return claimed;
 };
 
 
@@ -373,6 +448,9 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
   // Paid (Razorpay / wallet): refund the part of the total that was just cancelled to the wallet
   await refundOrder(order, round2(totalBefore - totals.totalAmount), { reason: 'cancel' });
+
+  // The cancelled item may have been the one holding the order back (e.g. the only pair still packing)
+  await syncOrderStatus(order._id);
 };
 
 
@@ -525,8 +603,17 @@ const getMyOrders = async (
 
   const filter = {
     userId,
-    // Online orders that were never paid are not real orders yet
-    $nor: [unpaidOnlineFilter()],
+    // Online orders that were never paid are shown too (as "Payment pending" while the customer can still
+    // pay, and as "Payment failed" once the 4 attempts or the 30 minutes are used up). Only an online order
+    // that was dropped before any payment was even tried stays hidden.
+    $nor: [
+      {
+        ...unpaidOnlineFilter(),
+        status: { $ne: ORDER_STATUS.PENDING },
+        'payment.attemptHistory.0': { $exists: false },
+        'payment.closedReason': { $nin: ['expired', 'exhausted'] },
+      },
+    ],
   };
 
 
@@ -611,6 +698,7 @@ const cancelOrder = async (userId, orderRef, { reason } = {}) => {
   const cleanReason = getCancelReason(reason);
 
   const order = await findUserOrder(userId, orderRef);
+  assertNotUnpaidOnline(order);
 
   if (order.status === ORDER_STATUS.CANCELLED) {
     throw createError(
@@ -682,6 +770,7 @@ const cancelOrderItem = async (
 
 
   const order = await findUserOrder(userId, orderRef);
+  assertNotUnpaidOnline(order);
 
 
   if (order.status === ORDER_STATUS.CANCELLED) {
@@ -759,14 +848,7 @@ const returnOrder = async (
   const cleanDescription = getReturnDescription(description);
 
   const order = await findUserOrder(userId, orderRef);
-
-  if (order.status !== ORDER_STATUS.DELIVERED) {
-    throw createError(
-      MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.RETURN_NOT_ALLOWED
-    );
-  }
+  assertNotUnpaidOnline(order);
 
   const filter = {
     orderId: order._id,
@@ -792,6 +874,15 @@ const returnOrder = async (
 
 
   const items = await OrderItem.find(filter);
+
+  // Returns work per item: at least one item must already be delivered
+  if (items.length === 0) {
+    throw createError(
+      MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_NOT_ALLOWED
+    );
+  }
 
   let requestedCount = 0;
 
@@ -846,14 +937,7 @@ const returnOrderItem = async (
   const cleanDescription = getReturnDescription(description);
 
   const order = await findUserOrder(userId, orderRef);
-
-  if (order.status !== ORDER_STATUS.DELIVERED) {
-    throw createError(
-      MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.RETURN_NOT_ALLOWED
-    );
-  }
+  assertNotUnpaidOnline(order);
 
   const item = await OrderItem.findOne({
     _id: itemId,
@@ -865,6 +949,15 @@ const returnOrderItem = async (
       MESSAGES.ORDER.ITEM_NOT_FOUND,
       STATUS.NOT_FOUND,
       ERROR_CODES.ORDER_ITEM_NOT_FOUND
+    );
+  }
+
+  // The item itself must be delivered (the rest of the order may still be on its way)
+  if (STATUS_FLOW.includes(item.status) && item.status !== ITEM_STATUS.DELIVERED) {
+    throw createError(
+      MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_NOT_ALLOWED
     );
   }
 
@@ -908,6 +1001,7 @@ const returnOrderItem = async (
 const getInvoiceData = async (userId, orderRef) => {
 
   const order = await findUserOrder(userId, orderRef);
+  assertNotUnpaidOnline(order);
 
   if (order.status === ORDER_STATUS.CANCELLED) {
     throw createError(
@@ -969,5 +1063,6 @@ module.exports = {
 
   toOrderView,
   refreshOrderAfterCancel,
+  syncOrderStatus,
   cancelOneItem,
 };

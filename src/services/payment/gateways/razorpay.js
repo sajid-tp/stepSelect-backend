@@ -53,35 +53,37 @@ const call = async (method, path, body) => {
 
 const toPaise = (inr) => Math.round(Number(inr) * 100);
 
-// Create the Razorpay order the checkout popup pays against.
-const createPayment = async ({ order }) => {
+// Create a Razorpay order the checkout popup pays against.
+// Used for shop orders (createPayment below) and for wallet top-ups.
+//   amountInr -> rupees to charge     receipt -> our own reference (max 40 characters)
+const createGatewayOrder = async ({ amountInr, receipt, notes = {} }) => {
   if (isDemo()) {
     const id = demoId('order');
     return {
       gatewayOrderId: id,
       currency: 'INR',
-      chargedAmount: order.totalAmount,
+      chargedAmount: amountInr,
       clientData: {
         demo: true,
         key: 'rzp_demo',
         razorpayOrderId: id,
-        amount: toPaise(order.totalAmount),
+        amount: toPaise(amountInr),
         currency: 'INR',
       },
     };
   }
 
   const created = await call('POST', '/orders', {
-    amount: toPaise(order.totalAmount),
+    amount: toPaise(amountInr),
     currency: 'INR',
-    receipt: order.orderNumber,
-    notes: { orderNumber: order.orderNumber },
+    receipt,
+    notes,
   });
 
   return {
     gatewayOrderId: created.id,
     currency: 'INR',
-    chargedAmount: order.totalAmount,
+    chargedAmount: amountInr,
     // Everything the browser needs to open the popup
     clientData: {
       key: keyId(),
@@ -91,6 +93,31 @@ const createPayment = async ({ order }) => {
     },
   };
 };
+
+// The popup data for a Razorpay order that ALREADY exists (used when the customer retries).
+// A Razorpay order accepts many payment attempts, so a retry does not need a new one:
+// every attempt just becomes one more payment id under the same order id.
+// Returns null when the saved id belongs to the other mode (demo vs real), so the caller makes a new one.
+const describeOrder = ({ gatewayOrderId, amountInr }) => {
+  if (!gatewayOrderId || String(gatewayOrderId).startsWith('order_demo_') !== isDemo()) return null;
+
+  return {
+    gatewayOrderId,
+    currency: 'INR',
+    chargedAmount: amountInr,
+    clientData: isDemo()
+      ? { demo: true, key: 'rzp_demo', razorpayOrderId: gatewayOrderId, amount: toPaise(amountInr), currency: 'INR' }
+      : { key: keyId(), razorpayOrderId: gatewayOrderId, amount: toPaise(amountInr), currency: 'INR' },
+  };
+};
+
+// Payment for a shop order
+const createPayment = ({ order }) =>
+  createGatewayOrder({
+    amountInr: order.totalAmount,
+    receipt: order.orderNumber,
+    notes: { orderNumber: order.orderNumber },
+  });
 
 // Razorpay signs "<order_id>|<payment_id>" with the key secret.
 const verifySignature = ({ orderId, paymentId, signature }) => {
@@ -124,6 +151,26 @@ const verifyWebhookSignature = (rawBody, signature) => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
+// The ids of the payments that FAILED under one Razorpay order, asked from Razorpay itself.
+// This is the reliable way to count failed tries: it does not depend on what the browser sends.
+// (Demo mode has no real Razorpay, so it returns nothing and the browser's own report is used.)
+const listFailedPaymentIds = async (gatewayOrderId) => {
+  if (isDemo() || !gatewayOrderId) return [];
+  const json = await call('GET', `/orders/${gatewayOrderId}/payments`);
+  return (json.items || []).filter((p) => p.status === 'failed').map((p) => String(p.id));
+};
+
+// The id of a payment under this Razorpay order that was really paid (status captured), or null.
+// Used before a retry: if the customer already paid (slow UPI, a closed tab, a late webhook) we mark the
+// order paid instead of asking them to pay a second time.
+// (Demo mode has no real Razorpay to ask, so it returns null.)
+const findCapturedPaymentId = async (gatewayOrderId) => {
+  if (isDemo() || !gatewayOrderId) return null;
+  const json = await call('GET', `/orders/${gatewayOrderId}/payments`);
+  const paid = (json.items || []).find((p) => p.status === 'captured');
+  return paid ? String(paid.id) : null;
+};
+
 const refund = async ({ order, amountInr }) => {
   if (isDemo()) return { id: demoId('rfnd'), demo: true, amount: toPaise(amountInr) };
 
@@ -133,4 +180,4 @@ const refund = async ({ order, amountInr }) => {
   });
 };
 
-module.exports = { name: 'RAZORPAY', isConfigured, isDemo, createPayment, verifySignature, verifyWebhookSignature, refund };
+module.exports = { name: 'RAZORPAY', isConfigured, isDemo, createGatewayOrder, describeOrder, createPayment, verifySignature, verifyWebhookSignature, listFailedPaymentIds, findCapturedPaymentId, refund };

@@ -51,7 +51,25 @@ const orderSchema = new mongoose.Schema(
       chargedAmount: { type: Number, default: 0 },       // amount in that currency
       paidInr: { type: Number, default: 0 },             // amount paid, in INR
       refundedInr: { type: Number, default: 0 },         // total refunded so far, in INR
-      attempts: { type: Number, default: 0 },
+      attempts: { type: Number, default: 0 },                // payment attempts started so far (4 allowed: 3 + a final one after a cool-down)
+      attemptOpen: { type: Boolean, default: false },        // true while an attempt is running (started, not yet paid or failed)
+      lastAttemptAt: { type: Date, default: null },          // when the latest attempt started
+      lastFailedAt: { type: Date, default: null },           // when the latest attempt failed (the cool-down before the final attempt starts here)
+      attemptHistory: {                                      // one entry per FAILED attempt
+        type: [
+          {
+            reason: { type: String, default: null },
+            paymentId: { type: String, default: null },
+            failedAt: { type: Date, default: Date.now },
+            _id: false,
+          },
+        ],
+        default: [],
+      },
+      failedPaymentIds: { type: [String], default: [] },     // Razorpay payment ids that FAILED (so the browser and the webhook never count one twice)
+      duplicatePaymentIds: { type: [String], default: [] },  // extra payments for an order that was already paid (refunded to the wallet)
+      closedReason: { type: String, enum: ['expired', 'exhausted', 'abandoned', null], default: null }, // why an unpaid order was closed
+      closedAt: { type: Date, default: null },
       failureReason: { type: String, default: null },
       refundError: { type: String, default: null },
       paidAt: { type: Date, default: null },
