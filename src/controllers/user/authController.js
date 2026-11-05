@@ -2,38 +2,53 @@
 const authService = require('../../services/user/authService');
 const { sendTokenCookies, clearUserTokenCookies } = require('../../utils/jwt');
 const createError = require('../../utils/createError');
+const {
+  VALIDATION_MESSAGES,
+  normalizeEmail,
+  validateUsername,
+  validateEmail,
+  validatePassword,
+} = require('../../utils/validators');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
 // 1. Signup
 const signup = async (req, res) => {
-  const { username, email, password } = req.body;
+  const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
+  const email = normalizeEmail(req.body.email);
+  const { password, confirmPassword } = req.body;
   const referralCode = typeof req.body.referralCode === 'string' ? req.body.referralCode.trim() : '';
+  const termsAccepted = req.body.termsAccepted === true;
 
   if (!username || !email || !password) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.COMMON.PLEASE_FILL_ALL_THE_FIELDS });
   }
 
-  const usernameRegex = /^.{6,10}$/;
-  if (!usernameRegex.test(username)) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.USERNAME_SHOULD_BE_6_CHARACTERS });
+  // Same rules, same messages as the signup form
+  const error = validateUsername(username) || validateEmail(email) || validatePassword(password);
+  if (error) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: error });
   }
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.USER.PLEASE_ENTER_A_VALID_EMAIL });
+  if (password !== confirmPassword) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: VALIDATION_MESSAGES.PASSWORDS_DO_NOT_MATCH });
   }
 
-  const passwordRegex = /^.{6,15}$/;
-  if (!passwordRegex.test(password)) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PASSWORD_SHOULD_BE_6_CHARACTERS });
+  if (!termsAccepted) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: VALIDATION_MESSAGES.TERMS_REQUIRED });
   }
 
   if (referralCode.length > 40) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.REFERRAL.INVALID_REFERRAL_CODE });
   }
 
-  const user = await authService.signup({ username, email, password, referralCode: referralCode || undefined });
+  const user = await authService.signup({
+    username,
+    email,
+    password,
+    termsAccepted,
+    referralCode: referralCode || undefined,
+  });
   return res.status(STATUS.CREATED).json(user);
 };
 
@@ -45,16 +60,27 @@ const google = async (req, res) => {
   }
 
   const referralCode = typeof req.body.referralCode === 'string' ? req.body.referralCode.trim() : '';
-  const { accessToken, refreshToken, user } = await authService.googleAuth(token, referralCode || undefined);
+  // Only the signup page sends termsAccepted: true. It is enforced below
+  // (in the service) only when this call would create a brand-new account.
+  const termsAccepted = req.body.termsAccepted === true;
+
+  const { accessToken, refreshToken, user } = await authService.googleAuth(
+    token,
+    referralCode || undefined,
+    termsAccepted
+  );
   sendTokenCookies(res, accessToken, refreshToken);
 
   return res.status(STATUS.OK).json(user);
 };
 
 // 3. Login
+// Login deliberately does NOT check password strength: accounts created under
+// older, weaker rules must still be able to sign in.
 const login = async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
+  const email = normalizeEmail(req.body.email);
+  const { password } = req.body;
+  if (!email || typeof password !== 'string' || !password) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PLEASE_FILL_ALL_FIELDS });
   }
 
@@ -90,7 +116,7 @@ const logout = (req, res) => {
 
 // 6. Send Signup OTP
 const sendOtp = async (req, res) => {
-  const { email } = req.body;
+  const email = normalizeEmail(req.body.email);
   if (!email) return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.EMAIL_IS_REQUIRED });
 
   const result = await authService.sendOtp(email);
@@ -102,7 +128,8 @@ const sendOtp = async (req, res) => {
 
 // 7. Verify Signup OTP
 const verifyOtp = async (req, res) => {
-  const { email, otp } = req.body;
+  const email = normalizeEmail(req.body.email);
+  const { otp } = req.body;
   if (!email || !otp) return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.EMAIL_AND_OTP_REQUIRED });
 
   const { accessToken, refreshToken, user } = await authService.verifyOtp({ email, otp });
@@ -113,7 +140,7 @@ const verifyOtp = async (req, res) => {
 
 // 8. Forgot Password
 const forgotPassword = async (req, res) => {
-  const { email } = req.body;
+  const email = normalizeEmail(req.body.email);
   if (!email) return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PLEASE_ENTER_YOUR_EMAIL });
 
   const result = await authService.forgotPassword(email);
@@ -125,7 +152,8 @@ const forgotPassword = async (req, res) => {
 
 // 9. Verify Reset OTP
 const verifyResetOtp = async (req, res) => {
-  const { email, otp } = req.body;
+  const email = normalizeEmail(req.body.email);
+  const { otp } = req.body;
   if (!email || !otp) return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PLEASE_ENTER_EMAIL_AND_OTP });
 
   const result = await authService.verifyResetOtp({ email, otp });
@@ -143,8 +171,10 @@ const resetPassword = async (req, res) => {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PLEASE_PROVIDE_RESET_TOKEN_AND_NEW_PASSWORD });
   }
 
-  if (newPassword.length < 6) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PASSWORD_MUST_BE_AT_LEAST_6_CHARACTERS });
+  // Same password rule as signup and change-password
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: passwordError });
   }
 
   await authService.resetPassword({ resetToken, newPassword });
@@ -153,7 +183,8 @@ const resetPassword = async (req, res) => {
 
 // 11. Resend OTP
 const resendOtp = async (req, res) => {
-  const { email, type } = req.body;
+  const email = normalizeEmail(req.body.email);
+  const { type } = req.body;
 
   if (!email || !type) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PLEASE_PROVIDE_EMAIL_AND_OTP_TYPE });

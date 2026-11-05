@@ -188,10 +188,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
   const couponShares = allocateCouponShares(lines, totals.couponDiscount);
   const referralShares = allocateCouponShares(lines, totals.referralDiscount);
 
-  // Everything that must happen together: take the stock, use the coupon, create the order and its items.
-  // It runs inside ONE database transaction (utils/transaction.js): if any step fails, or the server
-  // stops half way, nothing stays changed. Without transaction support (a plain local MongoDB) the
-  // old manual clean-up below does the same job.
+ 
   const createOrderRecords = async (session) => {
     const taken = [];
     let couponRedeemed = false;

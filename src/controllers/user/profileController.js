@@ -1,5 +1,15 @@
 // src/controllers/user/profileController.js
 const profileService = require('../../services/user/profileService');
+const {
+  VALIDATION_MESSAGES,
+  normalizeEmail,
+  validateUsername,
+  validateEmail,
+  validatePassword,
+  normalizePhone,
+  validatePhone,
+  validateOtp,
+} = require('../../utils/validators');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
@@ -22,33 +32,30 @@ const updateProfileImage = async (req, res) => {
   });
 };
 
+// 2b. Remove Profile Image
+const removeProfileImage = async (req, res) => {
+  const updatedUser = await profileService.removeProfileImage(req.user.id);
+  return res.status(STATUS.OK).json({
+    message: MESSAGES.USER.PROFILE_IMAGE_REMOVED_SUCCESSFULLY,
+    data: updatedUser,
+  });
+};
+
 // 3. Update Name & Phone
 const updateProfile = async (req, res) => {
   const { username, phoneNumber } = req.body;
 
-  if (!username || !username.trim()) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.USER.NAME_IS_REQUIRED });
+  const error = validateUsername(username, 'Name') || validatePhone(phoneNumber);
+  if (error) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: error });
   }
 
-  const trimmedName = username.trim();
-  if (trimmedName.length < 6) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.USER.NAME_MUST_BE_AT_LEAST_6_CHARACTERS_LONG });
-  }
-
-  if (!phoneNumber || !String(phoneNumber).trim()) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.USER.PHONE_NUMBER_IS_REQUIRED });
-  }
-
-  const trimmedPhone = String(phoneNumber).trim();
-  const phoneRegex = /^\d{10,15}$/;
-  if (!phoneRegex.test(trimmedPhone)) {
-    return res.status(STATUS.BAD_REQUEST).json({
-      message: MESSAGES.USER.PHONE_NUMBER_INVALID,
-    });
-  }
+  // Phone is optional: an empty value clears it
+  // (stored as the normalised 10 digits, so "+91 98765 43210" and "9876543210" are the same)
+  const trimmedPhone = normalizePhone(phoneNumber);
 
   const updatedUser = await profileService.updateProfile(req.user.id, {
-    username: trimmedName,
+    username: username.trim(),
     phoneNumber: trimmedPhone,
   });
 
@@ -57,16 +64,11 @@ const updateProfile = async (req, res) => {
 
 // 4. Request Email Change OTP
 const changeEmail = async (req, res) => {
-  const formattedEmail =
-    typeof req.body.newEmail === 'string' ? req.body.newEmail.trim().toLowerCase() : '';
+  const formattedEmail = normalizeEmail(req.body.newEmail);
 
-  if (!formattedEmail) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.USER.PLEASE_PROVIDE_THE_NEW_EMAIL });
-  }
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(formattedEmail)) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.USER.PLEASE_ENTER_A_VALID_EMAIL });
+  const error = validateEmail(formattedEmail);
+  if (error) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: error });
   }
 
   const result = await profileService.requestEmailChangeOtp(req.user.id, formattedEmail);
@@ -79,11 +81,12 @@ const changeEmail = async (req, res) => {
 
 // 5. Verify Email Change OTP
 const verifyChangeEmailOtp = async (req, res) => {
-  const otpValue = String(req.body.otp ?? '').trim();
-  if (!/^\d{6}$/.test(otpValue)) {
-    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.USER.ENTER_A_VALID_6_DIGIT_CODE });
+  const error = validateOtp(req.body.otp);
+  if (error) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: error });
   }
 
+  const otpValue = String(req.body.otp).trim();
   const updatedUser = await profileService.verifyAndChangeEmail(req.user.id, otpValue);
 
   return res.status(STATUS.OK).json({
@@ -100,16 +103,21 @@ const changePassword = async (req, res) => {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.COMMON.PLEASE_FILL_ALL_THE_FIELDS });
   }
 
-  const passwordRegex = /^.{6,15}$/;
-  if (!passwordRegex.test(newPassword)) {
-    return res.status(STATUS.BAD_REQUEST).json({
-      message: MESSAGES.USER.PASSWORD_MUST_BE_BETWEEN_6_AND_15_CHARACTERS,
-    });
+  // Same password rule as signup and reset-password
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: passwordError });
   }
 
   if (newPassword !== confirmPassword) {
     return res.status(STATUS.BAD_REQUEST).json({
       message: MESSAGES.USER.NEW_PASSWORD_AND_CONFIRM_PASSWORD_DO_NOT_MATCH,
+    });
+  }
+
+  if (newPassword === currentPassword) {
+    return res.status(STATUS.BAD_REQUEST).json({
+      message: MESSAGES.USER.NEW_PASSWORD_MUST_BE_DIFFERENT_FROM_CURRENT_PASSWORD,
     });
   }
 
@@ -121,6 +129,7 @@ const changePassword = async (req, res) => {
 module.exports = {
   getProfile,
   updateProfileImage,
+  removeProfileImage,
   changeEmail,
   verifyChangeEmailOtp,
   updateProfile,

@@ -2,6 +2,7 @@
 const addressService = require('../../services/user/addressService');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
+const { normalizePhone, validateEmail } = require('../../utils/validators');
 
 // Helper to reliably grab user id regardless of JWT structure
 const getUserId = (req) => req.user?.id || req.user?._id;
@@ -64,18 +65,20 @@ const createAddress = async (req, res) => {
     return res.status(STATUS.BAD_REQUEST).json({ success: false, message: MESSAGES.ADDRESS.PLEASE_ENTER_A_VALID_PIN_CODE });
   }
 
-  const phoneRegex = /^\d{10,15}$/;
-  if (!phoneRegex.test(String(phoneNumber).trim())) {
+  const cleanPhone = normalizePhone(phoneNumber);
+  if (!cleanPhone) {
     return res.status(STATUS.BAD_REQUEST).json({
       success: false,
       message: MESSAGES.USER.PHONE_NUMBER_INVALID,
     });
   }
 
-  if (email) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
-      return res.status(STATUS.BAD_REQUEST).json({ success: false, message: MESSAGES.USER.PLEASE_ENTER_A_VALID_EMAIL });
+  // Email is optional on an address, but when given it gets the same check as signup
+  const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+  if (cleanEmail) {
+    const emailError = validateEmail(cleanEmail);
+    if (emailError) {
+      return res.status(STATUS.BAD_REQUEST).json({ success: false, message: emailError });
     }
   }
 
@@ -86,8 +89,8 @@ const createAddress = async (req, res) => {
     country: country.trim(),
     city: city.trim(),
     pinCode: String(pinCode).trim(),
-    phoneNumber: String(phoneNumber).trim(),
-    email,
+    phoneNumber: cleanPhone,
+    email: cleanEmail,
     isDefault,
   });
 
@@ -98,8 +101,29 @@ const createAddress = async (req, res) => {
 const updateAddress = async (req, res) => {
   const userId = getUserId(req);
   const { id } = req.params;
+  const updates = { ...req.body };
 
-  const updatedAddress = await addressService.updateAddress(userId, id, req.body);
+  // PATCH used to skip validation completely; check the contact fields when they are sent
+  if (updates.phoneNumber !== undefined) {
+    const cleanPhone = normalizePhone(updates.phoneNumber);
+    if (!cleanPhone) {
+      return res.status(STATUS.BAD_REQUEST).json({ success: false, message: MESSAGES.USER.PHONE_NUMBER_INVALID });
+    }
+    updates.phoneNumber = cleanPhone;
+  }
+
+  if (updates.email !== undefined) {
+    const cleanEmail = String(updates.email || '').trim().toLowerCase();
+    if (cleanEmail) {
+      const emailError = validateEmail(cleanEmail);
+      if (emailError) {
+        return res.status(STATUS.BAD_REQUEST).json({ success: false, message: emailError });
+      }
+    }
+    updates.email = cleanEmail;
+  }
+
+  const updatedAddress = await addressService.updateAddress(userId, id, updates);
   return res.status(STATUS.OK).json({ success: true, data: updatedAddress });
 };
 

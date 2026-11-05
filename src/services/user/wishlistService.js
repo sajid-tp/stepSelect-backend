@@ -201,6 +201,16 @@ const getWishlistIds = async (userId) => {
 const addToWishlist = async (userId, { variantId, size }) => {
   const sizeValue = validateWishlistInput(variantId, size);
   await assertWishlistable(variantId, sizeValue);
+   
+   const wishlist = await Wishlist.findById(userId);
+
+   if(wishlist){
+    const count = wishlist.items.length;
+    if(count>=5){
+
+      throw createError("order count is greater than 5",400,"Order greater than 5");
+    }
+   }
 
   // Make sure the user's wishlist document exists
   try {

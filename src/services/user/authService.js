@@ -15,6 +15,7 @@ const {
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const referralService = require('./referralService');
+const { VALIDATION_MESSAGES } = require('../../utils/validators');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -44,7 +45,7 @@ const createAndSendOtp = async (user, type, emailSubject) => {
 
 
 // referralCode is optional. It can be a referral code or the token from an invite link.
-const signup = async ({ username, email, password, referralCode }) => {
+const signup = async ({ username, email, password, referralCode, termsAccepted }) => {
   // Check the code first, so a typo is reported before anything is created
   const referrer = referralCode ? await referralService.requireReferrer(referralCode) : null;
 
@@ -65,6 +66,7 @@ const signup = async ({ username, email, password, referralCode }) => {
     username,
     email,
     password: hashedPassword,
+    termsAccepted: Boolean(termsAccepted),
     referredBy: referrer ? referrer._id : null,
   });
 
@@ -79,7 +81,7 @@ const signup = async ({ username, email, password, referralCode }) => {
 
 
 // referralCode (optional) only counts when this Google login creates a brand-new account
-const googleAuth = async (token, referralCode) => {
+const googleAuth = async (token, referralCode, termsAccepted = false) => {
   let ticket;
   try {
     ticket = await client.verifyIdToken({
@@ -100,6 +102,10 @@ const googleAuth = async (token, referralCode) => {
       if (!user.profileImage) user.profileImage = picture;
       await user.save();
     } else {
+      // A brand-new account may only be created from the signup page (terms ticked)
+      if (!termsAccepted) {
+        throw createError(VALIDATION_MESSAGES.TERMS_REQUIRED, STATUS.BAD_REQUEST);
+      }
       const referrer = referralCode ? await referralService.resolveReferrer(referralCode) : null;
       user = await User.create({
         username: name,

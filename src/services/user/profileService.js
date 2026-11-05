@@ -57,6 +57,49 @@ const updateProfileImage = async (userId, file) => {
 };
 
 
+// Only images we uploaded ourselves live in this Cloudinary folder.
+// Google profile pictures and anything else are never touched on Cloudinary.
+const CLOUDINARY_PROFILE_FOLDER = 'stepSelect/profile_pictures/';
+
+const getCloudinaryPublicId = (url) => {
+  if (typeof url !== 'string' || !url.includes('res.cloudinary.com')) return null;
+  const match = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-zA-Z0-9]+(?:\?.*)?$/);
+  const publicId = match ? match[1] : null;
+  return publicId && publicId.startsWith(CLOUDINARY_PROFILE_FOLDER) ? publicId : null;
+};
+
+const removeProfileImage = async (userId) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw createError(MESSAGES.USER.USER_NOT_FOUND, STATUS.NOT_FOUND);
+  }
+
+  const publicId = getCloudinaryPublicId(user.profileImage);
+
+  // Clear it in the database first: this is what the user sees.
+  // An empty string (not unset) so the client's merge picks the change up.
+  user.profileImage = '';
+  await user.save({ validateModifiedOnly: true });
+
+  // Then clean up Cloudinary on a best-effort basis; a failure here must
+  // never make the removal look like it failed.
+  if (publicId) {
+    try {
+      await cloudinary.uploader.destroy(publicId);
+    } catch (err) {
+      console.error('Cloudinary profile image cleanup failed:', err.message);
+    }
+  }
+
+  return {
+    _id: user._id,
+    username: user.username,
+    email: user.email,
+    phoneNumber: user.phoneNumber,
+    profileImage: user.profileImage,
+  };
+};
+
 const updateProfile = async (userId, { username, phoneNumber }) => {
   const updatedUser = await User.findByIdAndUpdate(
     userId,
@@ -180,6 +223,14 @@ const changePassword = async (userId, currentPassword, newPassword) => {
     throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
   }
 
+  // Google accounts have no password: reject first, before bcrypt is ever called
+  if (user.googleId || !user.password) {
+    throw createError(
+      MESSAGES.USER.PASSWORD_CHANGES_ARE_UNAVAILABLE_FOR_GOOGLE_LINKED_ACCOUNTS,
+      STATUS.FORBIDDEN
+    );
+  }
+
   const isMatch = await bcrypt.compare(currentPassword, user.password);
   if (!isMatch) {
     throw createError(MESSAGES.USER.CURRENT_PASSWORD_IS_INCORRECT, STATUS.UNAUTHORIZED);
@@ -190,15 +241,6 @@ const changePassword = async (userId, currentPassword, newPassword) => {
     throw createError(MESSAGES.USER.NEW_PASSWORD_MUST_BE_DIFFERENT_FROM_CURRENT_PASSWORD, STATUS.BAD_REQUEST);
   }
 
-  
-if (user.googleId) {
-  throw createError(
-    MESSAGES.USER.PASSWORD_CHANGES_ARE_UNAVAILABLE_FOR_GOOGLE_LINKED_ACCOUNTS,
-    STATUS.FORBIDDEN
-  );
-}
-
-
   user.password = await bcrypt.hash(newPassword, 10);
   await user.save();
 
@@ -208,6 +250,7 @@ if (user.googleId) {
 module.exports = {
   getProfile,
   updateProfileImage,
+  removeProfileImage,
   updateProfile,
   requestEmailChangeOtp,
   verifyAndChangeEmail,
