@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Variant = require('../models/variants');
 const { PRICING, ORDER_STATUS, ITEM_STATUS, STATUS_FLOW } = require('../constants/orderConstants');
+const { MAX_DISCOUNT_PERCENT } = require('../constants/couponConstants');
 
 const isObjectId = (id) => Boolean(id) && /^[0-9a-fA-F]{24}$/.test(String(id));
 
@@ -91,7 +92,11 @@ const calculateCouponDiscount = (coupon, base) => {
     discount = coupon.discountValue;
   }
 
-  return Math.max(Math.min(Math.round(discount), amount), 0);
+  // Safety net: even a coupon saved earlier with a bigger value (e.g. 100%) can never take off
+  // more than MAX_DISCOUNT_PERCENT of the cart, so an order is never free.
+  const maxAllowed = Math.floor((amount * MAX_DISCOUNT_PERCENT) / 100);
+
+  return Math.max(Math.min(Math.round(discount), maxAllowed), 0);
 };
 
 // Split a discount (coupon or referral) over the order lines in proportion to what each line costs.

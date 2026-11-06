@@ -5,33 +5,45 @@ const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 
-// 1. Get Paginated & Filtered Users
-const getUsers = async ({ search, page = 1, limit = 10 ,sort}) => {
+const SORT_MAP = {
+  newest: { createdAt: -1 },
+  oldest: { createdAt: 1 },
+  name_asc: { username: 1 },
+  name_desc: { username: -1 },
+  email_asc: { email: 1 },
+  email_desc: { email: -1 },
+};
+
+// 1. Get Paginated, Filtered & Sorted Users
+const getUsers = async ({ search, page = 1, limit = 10, sort, status }) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
 
   const filter = { isVerified: true };
 
-  // Status filtering
-  // if (statusFilter === 'active') filter.isBlocked = false;
-  // if (statusFilter === 'blocked') filter.isBlocked = true;
-  // Search filtering
-  if (search) {
-    const regex = new RegExp(search, 'i');
+  // Status filtering (all | active | blocked)
+  if (status === 'active') filter.isBlocked = false;
+  if (status === 'blocked') filter.isBlocked = true;
+
+  // Search filtering (special characters are escaped so "a+b" or "(" can't break the regex)
+  const searchText = (search || '').trim();
+  if (searchText) {
+    const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'i');
     filter.$or = [{ username: regex }, { email: regex }];
   }
-  
 
   
-  // Count total matches
+  // Count total matches (after search + status filter) and all verified customers (for the header)
   const totalResults = await User.countDocuments(filter);
+  const totalCustomers = await User.countDocuments({ isVerified: true });
   const totalPages = Math.ceil(totalResults / limitNum) || 1;
 
 
   const users = await User.find(filter)
     .select('username email createdAt isBlocked')
-    .sort({ username: 1 })
-    .collation({ locale: 'en', strength: 1 })
+    .sort({ ...(SORT_MAP[sort] || SORT_MAP.name_asc), _id: -1 })
+    .collation({ locale: 'en', strength: 2 }) // case-insensitive A-Z
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
@@ -47,7 +59,7 @@ const getUsers = async ({ search, page = 1, limit = 10 ,sort}) => {
 
   return {
     users: formattedUsers,
-    totalCustomers: totalResults,
+    totalCustomers,
     page: pageNum,
     limit: limitNum,
     totalResults,

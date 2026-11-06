@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Coupon = require('../../models/coupon');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
+const { MAX_DISCOUNT_PERCENT, MIN_PERCENT, CODE_MIN, CODE_MAX, CODE_REGEX } = require('../../constants/couponConstants');
 
 const ALLOWED_FIELDS = [
   'couponCode',
@@ -19,6 +20,9 @@ const ALLOWED_FIELDS = [
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// true for 12, 12.5, 12.55 and false for 12.555 (max 2 decimal places)
+const hasMaxTwoDecimals = (n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
+
 const validateCouponInput = (data, { creating = false } = {}) => {
   if (creating) {
     for (const field of ['couponCode', 'discountType', 'discountValue']) {
@@ -33,6 +37,12 @@ const validateCouponInput = (data, { creating = false } = {}) => {
       throw createError('Coupon code must be a non-empty string', STATUS.BAD_REQUEST, 'INVALID_COUPON_CODE');
     }
     data.couponCode = data.couponCode.trim().toUpperCase();
+    if (data.couponCode.length < CODE_MIN || data.couponCode.length > CODE_MAX) {
+      throw createError(`Coupon code must be ${CODE_MIN} to ${CODE_MAX} characters`, STATUS.BAD_REQUEST, 'INVALID_COUPON_CODE');
+    }
+    if (!CODE_REGEX.test(data.couponCode)) {
+      throw createError('Coupon code can only contain letters, numbers, hyphens and underscores', STATUS.BAD_REQUEST, 'INVALID_COUPON_CODE');
+    }
   }
 
   if (data.discountType !== undefined && !['percentage', 'flat'].includes(data.discountType)) {
@@ -44,15 +54,13 @@ const validateCouponInput = (data, { creating = false } = {}) => {
     if (!Number.isFinite(value) || value <= 0) {
       throw createError('discountValue must be a number greater than zero', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
     }
+    if (!hasMaxTwoDecimals(value)) {
+      throw createError('Discount value can have at most 2 decimal places', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
+    }
     data.discountValue = value;
   }
 
-  const type = data.discountType;
-  const value = data.discountValue;
-  if (type === 'percentage' && value !== undefined && value > 100) {
-    throw createError('Percentage discount cannot exceed 100', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
-  }
-  if (type === 'flat' && data.maximumDiscount != null) {
+  if (data.discountType === 'flat' && data.maximumDiscount != null) {
     throw createError('maximumDiscount can only be used with percentage coupons', STATUS.BAD_REQUEST, 'INVALID_MAXIMUM_DISCOUNT');
   }
 
@@ -62,6 +70,12 @@ const validateCouponInput = (data, { creating = false } = {}) => {
       const min = field === 'redemptionLimit' || field === 'usageLimitPerUser' ? 1 : 0;
       if (!Number.isFinite(valueNum) || valueNum < min || (['redemptionLimit', 'usageLimitPerUser'].includes(field) && !Number.isInteger(valueNum))) {
         throw createError(`${field} must be a valid number`, STATUS.BAD_REQUEST, 'INVALID_COUPON_LIMIT');
+      }
+      if (['maximumDiscount', 'minimumPurchase'].includes(field) && !hasMaxTwoDecimals(valueNum)) {
+        throw createError(`${field === 'maximumDiscount' ? 'Maximum discount' : 'Minimum purchase'} can have at most 2 decimal places`, STATUS.BAD_REQUEST, 'INVALID_COUPON_LIMIT');
+      }
+      if (field === 'maximumDiscount' && valueNum <= 0) {
+        throw createError('maximumDiscount must be greater than zero (leave it empty for no cap)', STATUS.BAD_REQUEST, 'INVALID_MAXIMUM_DISCOUNT');
       }
       data[field] = valueNum;
     }
@@ -85,6 +99,52 @@ const validateCouponInput = (data, { creating = false } = {}) => {
 
   if (data.isActive !== undefined && typeof data.isActive !== 'boolean') {
     throw createError('isActive must be true or false', STATUS.BAD_REQUEST, 'INVALID_ACTIVE_STATUS');
+  }
+};
+
+// Rules that depend on several fields together. It is always run on the FINAL values
+// (existing coupon + the changes), so editing one field can't break another.
+const assertCouponRules = (c, { creating = false, usedCount = 0 } = {}) => {
+  const value = Number(c.discountValue);
+  const minimumPurchase = Number(c.minimumPurchase) || 0;
+
+  if (c.discountType === 'percentage') {
+    if (value < MIN_PERCENT || value > MAX_DISCOUNT_PERCENT) {
+      throw createError(
+        `Percentage discount must be between ${MIN_PERCENT}% and ${MAX_DISCOUNT_PERCENT}%`,
+        STATUS.BAD_REQUEST,
+        'INVALID_DISCOUNT_VALUE'
+      );
+    }
+  } else if (c.discountType === 'flat') {
+    // A flat coupon with no minimum (or a minimum smaller than the discount) could make a cart free
+    if (minimumPurchase <= 0) {
+      throw createError(
+        'A flat coupon needs a minimum purchase greater than the discount amount',
+        STATUS.BAD_REQUEST,
+        'INVALID_MINIMUM_PURCHASE'
+      );
+    }
+    const allowed = Math.floor((minimumPurchase * MAX_DISCOUNT_PERCENT) / 100);
+    if (value > allowed) {
+      throw createError(
+        `A flat discount can be at most ${MAX_DISCOUNT_PERCENT}% of the minimum purchase (\u20b9${allowed} for a \u20b9${minimumPurchase} minimum). Raise the minimum purchase or lower the discount`,
+        STATUS.BAD_REQUEST,
+        'INVALID_DISCOUNT_VALUE'
+      );
+    }
+  }
+
+  if (creating && c.expiryDate && new Date(c.expiryDate) < new Date()) {
+    throw createError('Expiry date cannot be in the past', STATUS.BAD_REQUEST, 'INVALID_COUPON_DATE');
+  }
+
+  if (c.redemptionLimit != null && c.redemptionLimit < usedCount) {
+    throw createError(
+      `This coupon has already been redeemed ${usedCount} times, so the limit cannot be lower than that`,
+      STATUS.BAD_REQUEST,
+      'INVALID_COUPON_LIMIT'
+    );
   }
 };
 
@@ -162,6 +222,7 @@ const createCoupon = async (payload = {}) => {
     if (payload[field] !== undefined) data[field] = payload[field];
   }
   validateCouponInput(data, { creating: true });
+  assertCouponRules({ minimumPurchase: 0, maximumDiscount: null, redemptionLimit: null, ...data }, { creating: true });
 
   const existing = await Coupon.findOne({ couponCode: data.couponCode, deletedAt : null });
   if (existing) {
@@ -208,15 +269,13 @@ const updateCoupon = async (couponId, payload = {}) => {
   validateCouponInput(data);
 
   if (data.couponCode && data.couponCode !== coupon.couponCode) {
-    const duplicate = await Coupon.findOne({ couponCode: data.couponCode, _id: { $ne: coupon._id } });
+    const duplicate = await Coupon.findOne({ couponCode: data.couponCode, deletedAt: null, _id: { $ne: coupon._id } });
     if (duplicate) throw createError('A coupon with this code already exists', STATUS.CONFLICT, 'COUPON_CODE_EXISTS');
   }
 
   // Validate the resulting combination of old and new values, not just the partial payload.
   const merged = { ...coupon.toObject(), ...data };
-  if (merged.discountType === 'percentage' && merged.discountValue > 100) {
-    throw createError('Percentage discount cannot exceed 100', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
-  }
+  assertCouponRules(merged, { usedCount: coupon.usedCount });
   if (merged.discountType === 'flat' && merged.maximumDiscount != null) {
     throw createError('maximumDiscount can only be used with percentage coupons', STATUS.BAD_REQUEST, 'INVALID_MAXIMUM_DISCOUNT');
   }

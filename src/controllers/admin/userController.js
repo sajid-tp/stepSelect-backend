@@ -4,10 +4,10 @@ const STATUS = require('../../constants/statusCodes');
 
 // GET /api/admin/users
 const getUsers = async (req, res) => {
-  const { statusFilter, search, page, sort } = req.query;
+  const { status, search, page, sort } = req.query;
 
   const data = await adminUserService.getUsers({
-    statusFilter,
+    status,
     sort,
     search,
     page,
