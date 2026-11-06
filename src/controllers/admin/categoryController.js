@@ -4,13 +4,14 @@ const STATUS = require('../../constants/statusCodes');
 
 //get categories
 const getCategories = async (req, res) => {
-  const { search, page, sort="newest",status } = req.query;
+  const { search, page, sort="newest",status, limit } = req.query;
 
   const data = await adminCategoryService.getCategories({
     search,
     page,
     sort,
-    status
+    status,
+    limit
   });
 
   return res.status(STATUS.OK).json(data);

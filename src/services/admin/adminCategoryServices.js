@@ -26,10 +26,11 @@ const formatCategory = (category) => ({
 });
 
 // 1 . getCategory
-const getCategories = async ({ search, page = 1, sort, status }) => {
+const getCategories = async ({ search, page = 1, sort, status, limit }) => {
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-  const limitNum = 8;
+  // default 8 for the admin table; callers (e.g. dropdowns) can ask for more, capped at 100
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 8, 1), 100);
 
   const filter = { deletedAt: null };
 
