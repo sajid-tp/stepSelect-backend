@@ -4,13 +4,14 @@ const STATUS = require('../../constants/statusCodes');
 
 
 const getBrands = async (req, res) => {
-  const { search, page, sort } = req.query;
+  const { search, page, sort, status, limit } = req.query;
 
   const data = await adminBrandService.getBrands({
     search,
     page,
-    limit: 5,
-    sort
+    limit,
+    sort,
+    status
   });
 
   return res.status(STATUS.OK).json(data);
