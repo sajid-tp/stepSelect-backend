@@ -229,12 +229,17 @@ const MESSAGES = Object.freeze({
     CANCEL_REASON_TOO_LONG: 'Cancellation reason is too long.',
     CANNOT_CANCEL_AFTER_SHIPPED: 'This order can no longer be cancelled because it has been shipped.',
     CANNOT_CANCEL_ITEM_AFTER_SHIPPED: 'This item can no longer be cancelled because it has been shipped.',
+    CANNOT_CANCEL_ORDER_ALREADY_SHIPPED: 'Part of this order has already been shipped, so the whole order can no longer be cancelled. Items that are still being processed can be cancelled one by one.',
     INVALID_CANCEL_REASON: 'Invalid cancellation reason.',
     INVALID_ITEM_ID: 'Invalid item id.',
     INVALID_ORDER_ID: 'Invalid order id.',
     INVALID_RETURN_REASON: 'Please select a valid reason for the return.',
     INVALID_STATUS: 'Invalid order status.',
     INVALID_STATUS_TRANSITION: (from, to) => `Cannot change status from "${from}" to "${to}".`,
+    // same, but also tells the admin what IS allowed from the current status
+    STATUS_STEP_NOT_ALLOWED: (from, to, allowed) =>
+      `Cannot change status from "${from}" to "${to}". ` +
+      (allowed.length ? `Allowed next: ${allowed.join(', ')}.` : 'No further changes are possible.'),
     INVOICE_NOT_AVAILABLE_FOR_CANCELLED_ORDER: 'Invoice is not available for a cancelled order.',
     ITEM_ALREADY_CANCELLED: 'This item is already cancelled.',
     ITEM_NOT_FOUND: 'Order item not found.',

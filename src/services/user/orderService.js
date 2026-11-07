@@ -51,6 +51,17 @@ const getRemainingQuantity = (item) => {
 
 
 
+// Cancelling the WHOLE order is only possible while every item is still being processed (nothing shipped yet).
+// As soon as ANY item has left processing (shipped, out for delivery, delivered, or in the return flow)
+// "Cancel order" is closed. A single item that is still processing can still be cancelled on its own.
+// (The order status alone is not enough: it follows the slowest item, so an order with one shipped
+// pair and one pair still packing still says "pending".)
+const hasLeftProcessing = (items) =>
+  items.some(
+    (item) =>
+      item.status !== ITEM_STATUS.PENDING && item.status !== ITEM_STATUS.CANCELLED
+  );
+
 const getReturnableQuantity = (item) => {
   if (item.status !== ITEM_STATUS.DELIVERED) {
     return 0;
@@ -251,6 +262,8 @@ const toItemView = (item) => {
 const toOrderView = (order, items) => {
   // Nothing of an unpaid order can be cancelled or returned item by item: its payment is retried or cancelled instead
   const unpaidOnline = isUnpaidOnline(order);
+  // Once any item has shipped, the whole order can no longer be cancelled (items still processing keep their own Cancel item)
+  const shipped = hasLeftProcessing(items);
   const itemViews = items.map((item) => {
     const view = toItemView(item);
     return unpaidOnline ? { ...view, canCancel: false, maxCancelQuantity: 0, canReturn: false, maxReturnQuantity: 0 } : view;
@@ -301,7 +314,7 @@ const toOrderView = (order, items) => {
 
     // An order that is not paid yet is not cancelled like a normal order: its payment is retried or cancelled instead
     canCancel:
-      order.status === ORDER_STATUS.PENDING && canCancel && !isUnpaidOnline(order),
+      order.status === ORDER_STATUS.PENDING && canCancel && !shipped && !isUnpaidOnline(order),
 
     // Each item is delivered on its own, so a delivered pair can be returned
     // even while another pair of the same order is still on its way.
@@ -724,10 +737,19 @@ const cancelOrder = async (userId, orderRef, { reason } = {}) => {
     );
   }
 
-  const items = await OrderItem.find({
-    orderId: order._id,
-    status: ITEM_STATUS.PENDING,
-  });
+  const allItems = await OrderItem.find({ orderId: order._id });
+
+  // The order status follows the slowest item, so also look at every item:
+  // if any of them has already shipped, the order can no longer be cancelled.
+  if (hasLeftProcessing(allItems)) {
+    throw createError(
+      MESSAGES.ORDER.CANNOT_CANCEL_ORDER_ALREADY_SHIPPED,
+      STATUS.CONFLICT,
+      ERROR_CODES.CANCEL_NOT_ALLOWED
+    );
+  }
+
+  const items = allItems.filter((item) => item.status === ITEM_STATUS.PENDING);
 
   if (items.length === 0) {
     throw createError(

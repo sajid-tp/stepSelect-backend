@@ -10,6 +10,7 @@ const {
   ORDER_STATUS,
   ITEM_STATUS,
   STATUS_FLOW,
+  STATUS_TRANSITIONS,
   PAYMENT_STATUS,
   PAYMENT_METHODS,
   unpaidOnlineFilter,
@@ -133,12 +134,17 @@ const OPEN_ITEM_STATUSES = [ITEM_STATUS.PENDING, ITEM_STATUS.SHIPPED, ITEM_STATU
 // An online order can only move forward once its payment has arrived (Cash on Delivery pays at the door)
 const isPayable = (order) => order.paymentMethod === PAYMENT_METHODS.COD || order.paymentStatus === PAYMENT_STATUS.PAID;
 
-// What the status dropdown of ONE product can offer right now:
-// forward only (pending -> shipped -> out_for_delivery -> delivered), or cancel before it is delivered.
+// The statuses ONE product may move to next, straight from the STATUS_TRANSITIONS table
+// (an unpaid online order can only be cancelled, never shipped).
+const nextStatuses = (order, current) => {
+  const next = STATUS_TRANSITIONS[current] || [];
+  return isPayable(order) ? next : next.filter((s) => s === ORDER_STATUS.CANCELLED);
+};
+
+// What the status dropdown of ONE product can offer right now.
 const itemAllowedStatuses = (order, item) => {
   if (!OPEN_ITEM_STATUSES.includes(item.status) || remainingQuantity(item) < 1) return [];
-  const forward = isPayable(order) ? STATUS_FLOW.slice(STATUS_FLOW.indexOf(item.status) + 1) : [];
-  return [...forward, ORDER_STATUS.CANCELLED];
+  return nextStatuses(order, item.status);
 };
 
 // 2. One order with customer details. Every item carries its own `allowedStatuses`.
@@ -178,17 +184,21 @@ const checkItemChange = (order, item, newStatus) => {
   if (!OPEN_ITEM_STATUSES.includes(current)) throw conflict(MESSAGES.ORDER.ITEM_HAS_RETURN);
 
   if (newStatus === current) throw conflict(MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus));
-  if (newStatus === ORDER_STATUS.CANCELLED) return;
 
-  if (!isPayable(order)) throw conflict(MESSAGES.ORDER.PAYMENT_NOT_RECEIVED);
-
-  if (STATUS_FLOW.indexOf(newStatus) <= STATUS_FLOW.indexOf(current)) {
-    throw conflict(MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus));
+  // The one rule: the new status must be a step the table allows from the current status.
+  // (this blocks skipping ahead, going back, and cancelling once the item has shipped)
+  const allowed = STATUS_TRANSITIONS[current] || [];
+  if (!allowed.includes(newStatus)) {
+    throw conflict(MESSAGES.ORDER.STATUS_STEP_NOT_ALLOWED(current, newStatus, allowed));
   }
+
+  if (newStatus === ORDER_STATUS.CANCELLED) return;
+  if (!isPayable(order)) throw conflict(MESSAGES.ORDER.PAYMENT_NOT_RECEIVED);
 };
 
-// Move ONE item forward. Every stage it passes gets a history line, so the customer's
-// "Track item" timeline has no gaps even when the admin skips a step.
+// Move ONE item forward (the step was already checked against STATUS_TRANSITIONS). Every stage it passes
+// gets a history line, so the customer's "Track item" timeline has no gaps, even when the admin goes
+// straight from shipped to delivered and skips the optional "out for delivery" step.
 const moveItemForward = async (item, newStatus) => {
   const from = STATUS_FLOW.indexOf(item.status);
   const to = STATUS_FLOW.indexOf(newStatus);
@@ -234,8 +244,8 @@ const finishChange = (order, cancelled) =>
   cancelled ? refreshOrderAfterCancel(order, 'Cancelled by admin') : syncOrderStatus(order._id);
 
 // 3. Change the status of ONE product of an order (the admin's main action).
-//    Forward only: pending -> shipped -> out_for_delivery -> delivered. Cancel any time before delivery.
-//    The order's own status then follows its items by itself.
+//    Only the steps in STATUS_TRANSITIONS are allowed: pending -> shipped -> (out_for_delivery) -> delivered,
+//    or cancelled while still pending. The order's own status then follows its items by itself.
 const updateItemStatus = async (orderRef, itemId, newStatus) => {
   if (!Object.values(ORDER_STATUS).includes(newStatus)) {
     throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
@@ -261,7 +271,8 @@ const updateItemStatus = async (orderRef, itemId, newStatus) => {
 };
 
 // Same thing for every open item at once (kept for the shorter Postman route PATCH /orders/:orderId).
-// Items that are already at or past `newStatus`, delivered, cancelled or in a return are left alone.
+// Only items for which `newStatus` is an allowed next step are changed; every other item
+// (already past it, too early for it, delivered, cancelled or in a return) is left alone.
 const updateOrderStatus = async (orderRef, newStatus) => {
   if (!Object.values(ORDER_STATUS).includes(newStatus)) {
     throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
@@ -271,10 +282,7 @@ const updateOrderStatus = async (orderRef, newStatus) => {
   const cancelled = newStatus === ORDER_STATUS.CANCELLED;
 
   const openItems = await OrderItem.find({ orderId: order._id, status: { $in: OPEN_ITEM_STATUSES } });
-  const targets =
-    newStatus === ORDER_STATUS.PENDING
-      ? []
-      : openItems.filter((i) => cancelled || STATUS_FLOW.indexOf(i.status) < STATUS_FLOW.indexOf(newStatus));
+  const targets = openItems.filter((i) => (STATUS_TRANSITIONS[i.status] || []).includes(newStatus));
 
   if (targets.length === 0) {
     throw conflict(MESSAGES.ORDER.INVALID_STATUS_TRANSITION(order.status, newStatus));
