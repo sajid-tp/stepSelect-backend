@@ -18,13 +18,28 @@ const ITEM_STATUS = Object.freeze({
   RETURN_REJECTED: 'return_rejected',
 });
 
-// Admin can only move forward in this order (cancel is handled separately)
+// The delivery stages in order (used to work out how far an item has travelled)
 const STATUS_FLOW = [
   ORDER_STATUS.PENDING,
   ORDER_STATUS.SHIPPED,
   ORDER_STATUS.OUT_FOR_DELIVERY,
   ORDER_STATUS.DELIVERED,
 ];
+
+// THE status rules: from each status, the only statuses the admin may move to next.
+//   pending          -> shipped, or cancelled (cancel is only possible before shipping)
+//   shipped          -> out_for_delivery, or straight to delivered ("out for delivery" is optional)
+//   out_for_delivery -> delivered
+//   delivered / cancelled -> nothing (final; after delivery the customer may ask for a return instead)
+// No skipping ahead (pending -> delivered) and no going back. The server checks every change against
+// this table and sends the allowed ones to the admin page, so the dropdown never offers anything else.
+const STATUS_TRANSITIONS = Object.freeze({
+  [ORDER_STATUS.PENDING]: [ORDER_STATUS.SHIPPED, ORDER_STATUS.CANCELLED],
+  [ORDER_STATUS.SHIPPED]: [ORDER_STATUS.OUT_FOR_DELIVERY],
+  [ORDER_STATUS.OUT_FOR_DELIVERY]: [ORDER_STATUS.DELIVERED],
+  [ORDER_STATUS.DELIVERED]: [],
+  [ORDER_STATUS.CANCELLED]: [],
+});
 
 const PAYMENT_METHODS = Object.freeze({ COD: 'COD', RAZORPAY: 'RAZORPAY', WALLET: 'WALLET' });
 const PAYMENT_STATUS = Object.freeze({
@@ -72,6 +87,7 @@ module.exports = {
   ORDER_STATUS,
   ITEM_STATUS,
   STATUS_FLOW,
+  STATUS_TRANSITIONS,
   PAYMENT_METHODS,
   PAYMENT_STATUS,
   unpaidOnlineFilter,
