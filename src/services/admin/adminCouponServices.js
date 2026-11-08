@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Coupon = require('../../models/coupon');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
+const { COUPON_LIMITS } = require('../../constants/couponConstants');
 
 const ALLOWED_FIELDS = [
   'couponCode',
@@ -16,6 +17,19 @@ const ALLOWED_FIELDS = [
   'usageLimitPerUser',
   'isActive',
 ];
+
+// A percentage coupon must take off a whole number of percent (1 to 90). Flat coupons are not checked here.
+const validatePercentageValue = (discountType, discountValue) => {
+  if (discountType !== 'percentage' || discountValue === undefined || discountValue === null) return;
+  const value = Number(discountValue);
+  if (!Number.isInteger(value) || value < COUPON_LIMITS.MIN_PERCENT || value > COUPON_LIMITS.MAX_PERCENT) {
+    throw createError(
+      `Percentage discount must be a whole number from ${COUPON_LIMITS.MIN_PERCENT} to ${COUPON_LIMITS.MAX_PERCENT}`,
+      STATUS.BAD_REQUEST,
+      'INVALID_DISCOUNT_VALUE'
+    );
+  }
+};
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -49,9 +63,7 @@ const validateCouponInput = (data, { creating = false } = {}) => {
 
   const type = data.discountType;
   const value = data.discountValue;
-  if (type === 'percentage' && value !== undefined && value > 100) {
-    throw createError('Percentage discount cannot exceed 100', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
-  }
+  validatePercentageValue(type, value);
   if (type === 'flat' && data.maximumDiscount != null) {
     throw createError('maximumDiscount can only be used with percentage coupons', STATUS.BAD_REQUEST, 'INVALID_MAXIMUM_DISCOUNT');
   }
@@ -214,8 +226,10 @@ const updateCoupon = async (couponId, payload = {}) => {
 
   // Validate the resulting combination of old and new values, not just the partial payload.
   const merged = { ...coupon.toObject(), ...data };
-  if (merged.discountType === 'percentage' && merged.discountValue > 100) {
-    throw createError('Percentage discount cannot exceed 100', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
+  // Only when the type or the value is being changed: an older coupon saved with a decimal percentage
+  // can still have, say, its description edited without being blocked.
+  if (data.discountType !== undefined || data.discountValue !== undefined) {
+    validatePercentageValue(merged.discountType, merged.discountValue);
   }
   if (merged.discountType === 'flat' && merged.maximumDiscount != null) {
     throw createError('maximumDiscount can only be used with percentage coupons', STATUS.BAD_REQUEST, 'INVALID_MAXIMUM_DISCOUNT');
@@ -282,4 +296,11 @@ const deleteCoupon = async (couponId) => {
   return { success: true, data: { message: 'Coupon deleted', id: coupon._id.toString() } };
 };
 
-module.exports = { getCoupons, createCoupon, getCouponById, updateCoupon, setCouponStatus, deleteCoupon };
+module.exports = {
+  getCoupons,
+  createCoupon,
+  getCouponById,
+  updateCoupon,
+  setCouponStatus,
+  deleteCoupon,
+};

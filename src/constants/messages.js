@@ -177,6 +177,8 @@ const MESSAGES = Object.freeze({
     ITEM_NOT_FOUND_IN_CART: 'Item not found in cart.',
     ITEM_REMOVED_FROM_CART: 'Item removed from cart.',
     MAX_QUANTITY_PER_ITEM_EXCEEDED: (maxQuantityPerItem) => `You can buy at most ${maxQuantityPerItem} of the same item.`,
+    MAX_UNITS_PER_ORDER_EXCEEDED: (max) => `You can order at most ${max} items at a time.`,
+    MAX_ORDER_VALUE_EXCEEDED: (max) => `An order can be worth at most ₹${Number(max).toLocaleString('en-IN')}.`,
     ONLY_STOCK_LEFT_FOR_SIZE: (stock) => `Only ${stock} left in stock for this size.`,
     PRODUCT_VARIANT_NOT_FOUND: 'Product variant not found.',
     QUANTITY_MUST_BE_WHOLE_NUMBER_AT_LEAST_1: 'Quantity must be a whole number of at least 1.',
@@ -221,6 +223,9 @@ const MESSAGES = Object.freeze({
     ITEM_OUT_OF_STOCK: (name, size) => `${name} (size ${size}) is out of stock.`,
     ITEM_INSUFFICIENT_STOCK: (name, size, stock) => `Only ${stock} left for ${name} (size ${size}). Please update your cart.`,
     ONLY_COD_IS_AVAILABLE: 'Only Cash on Delivery is available right now.',
+    TOO_MANY_UNITS: (max) => `You can order at most ${max} items at a time. Please remove some items from your cart.`,
+    ORDER_VALUE_TOO_HIGH: (max) => `An order can be worth at most ₹${Number(max).toLocaleString('en-IN')}. Please remove some items from your cart.`,
+    COD_LIMIT_EXCEEDED: (max) => `Cash on Delivery is available only for orders up to ₹${Number(max).toLocaleString('en-IN')}. Please choose another payment method.`,
     ORDER_PLACED_SUCCESSFULLY: 'Order placed successfully.',
   }),
 

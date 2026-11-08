@@ -14,6 +14,7 @@ const {
   PAYMENT_STATUS,
   PAYMENT_METHODS,
   unpaidOnlineFilter,
+  isDamageReturnReason,
 } = require('../../constants/orderConstants');
 const { isObjectId, escapeRegex, restoreStock, pushHistory, remainingQuantity } = require('../../utils/orderHelpers');
 const { toOrderView, refreshOrderAfterCancel, syncOrderStatus } = require('../user/orderService');
@@ -167,6 +168,8 @@ const getOrder = async (orderRef) => {
         allowedStatuses: itemAllowedStatuses(order, raw),
         returnRestockedQuantity: raw.returnRestockedQuantity || 0,
         returnDiscardedQuantity: raw.returnDiscardedQuantity || 0,
+        // true = damaged / defective return: stock is never added back for it
+        returnIsDamage: isDamageReturnReason(raw.returnReason),
       };
     }),
     user: toUserView(user),
@@ -305,8 +308,12 @@ const updateOrderStatus = async (orderRef, newStatus) => {
 };
 
 // 4. Approve or reject a return request for one item.
-//    On approve, `restock` tells whether the returned units go back into the shop's stock
-//    (false for e.g. damaged shoes). It defaults to true, which is how returns always worked.
+//    Stock rules on approve (decided by the return reason the customer gave):
+//    - "Damaged product" / "Defective product": the units are NEVER added back to stock, whatever
+//      `restock` says. They cannot be sold again.
+//    - Any other reason (wrong size, wrong item, ...): nothing happens automatically. The admin has to
+//      read the reason and description and send `restock` (true = fit to sell again, false = not).
+//      Only then is the stock recalculated. Leaving `restock` out is an error, not a default.
 const handleReturn = async (orderRef, itemId, action, reason, restock) => {
   if (!['approve', 'reject'].includes(action)) {
     throw createError(MESSAGES.ORDER.INVALID_RETURN_ACTION, STATUS.BAD_REQUEST);
@@ -320,8 +327,6 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
   if (action === 'reject' && !cleanReason) {
     throw createError('Please give a reason for rejecting the return.', STATUS.BAD_REQUEST);
   }
-
-  const addToStock = restock !== false && restock !== 'false';
 
   const order = await findOrder(orderRef);
 
@@ -337,6 +342,21 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
   // Units the customer asked for (older requests saved before the schema fix fall back to the whole line)
   const requestedQty = item.returnRequestedQuantity || item.quantity - (item.cancelledQuantity || 0);
 
+  // Should these units go back into stock? (only matters when approving)
+  let addToStock = false;
+  if (action === 'approve') {
+    if (isDamageReturnReason(item.returnReason)) {
+      addToStock = false; // damaged / defective: never restocked, even if the request says true
+    } else if (restock === undefined || restock === null || restock === '') {
+      throw createError(
+        'Check the return reason and description, then choose whether the units go back to stock.',
+        STATUS.BAD_REQUEST
+      );
+    } else {
+      addToStock = restock === true || restock === 'true';
+    }
+  }
+
   if (action === 'approve') {
     item.returnedQuantity = (item.returnedQuantity || 0) + requestedQty;
     item.returnRequestedQuantity = 0;
@@ -350,9 +370,13 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
     const delivered = item.deliveredQuantity || item.quantity - (item.cancelledQuantity || 0);
     item.status = item.returnedQuantity >= delivered ? ITEM_STATUS.RETURNED : ITEM_STATUS.DELIVERED;
 
-    pushHistory(item, ITEM_STATUS.RETURNED, `Return approved for ${requestedQty} unit(s)`);
+    pushHistory(
+      item,
+      ITEM_STATUS.RETURNED,
+      `Return approved for ${requestedQty} unit(s), ${addToStock ? 'added back to stock' : 'not added to stock'}`
+    );
     await item.save();
-    if (addToStock) await restoreStock(item.variantId, item.size, requestedQty); // shoes go back on the shelf
+    if (addToStock) await restoreStock(item.variantId, item.size, requestedQty); // only after the admin's check
 
     // The admin approved the return: put what these units cost (after their share of the coupon,
     // plus tax) into the customer's wallet. This also covers Cash on Delivery orders.

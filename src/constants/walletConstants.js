@@ -24,7 +24,7 @@ const WALLET_TOPUP_STATUS = Object.freeze({ CREATED: 'created', PAID: 'paid', FA
 
 // Rupee limits for a top-up
 const WALLET_LIMITS = Object.freeze({
-  MIN_TOP_UP: 1,
+  MIN_TOP_UP: 100,
   MAX_TOP_UP: 50000,
   MAX_BALANCE: 100000,
 });
