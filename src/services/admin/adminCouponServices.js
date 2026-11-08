@@ -18,6 +18,19 @@ const ALLOWED_FIELDS = [
   'isActive',
 ];
 
+// A percentage coupon must take off a whole number of percent (1 to 90). Flat coupons are not checked here.
+const validatePercentageValue = (discountType, discountValue) => {
+  if (discountType !== 'percentage' || discountValue === undefined || discountValue === null) return;
+  const value = Number(discountValue);
+  if (!Number.isInteger(value) || value < COUPON_LIMITS.MIN_PERCENT || value > COUPON_LIMITS.MAX_PERCENT) {
+    throw createError(
+      `Percentage discount must be a whole number from ${COUPON_LIMITS.MIN_PERCENT} to ${COUPON_LIMITS.MAX_PERCENT}`,
+      STATUS.BAD_REQUEST,
+      'INVALID_DISCOUNT_VALUE'
+    );
+  }
+};
+
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // true for 12, 12.5, 12.55 and false for 12.555 (max 2 decimal places)
@@ -341,4 +354,11 @@ const deleteCoupon = async (couponId) => {
   return { success: true, data: { message: 'Coupon deleted', id: coupon._id.toString() } };
 };
 
-module.exports = { getCoupons, createCoupon, getCouponById, updateCoupon, setCouponStatus, deleteCoupon };
+module.exports = {
+  getCoupons,
+  createCoupon,
+  getCouponById,
+  updateCoupon,
+  setCouponStatus,
+  deleteCoupon,
+};

@@ -74,11 +74,32 @@ const RETURN_REASONS = [
   'Other',
 ];
 
+// Return reasons that mean the product itself is damaged / faulty. Returned units with one of these
+// reasons are NEVER added back to stock automatically (they cannot be sold again as new).
+// Every other reason (wrong size, wrong item, ...) is checked by the admin first - see handleReturn.
+const DAMAGE_RETURN_REASONS = ['Damaged product', 'Defective product'];
+
+const isDamageReturnReason = (reason) =>
+  DAMAGE_RETURN_REASONS.some((r) => r.toLowerCase() === String(reason || '').trim().toLowerCase());
+
 // Pricing rules. Change these numbers to change checkout everywhere.
 const PRICING = Object.freeze({
   TAX_PERCENT: 0,            // taxes are optional in the task: 0 = no tax line. Try 5 for 5% GST
   SHIPPING_FEE: 0,           // flat shipping fee
   FREE_SHIPPING_ABOVE: 0,    // shipping is free when the amount after discount reaches this
+});
+
+// Business limits for one order. Change these numbers to change the rules everywhere (cart, checkout, payment).
+//   MAX_QUANTITY_PER_VARIANT  most of the same variant + size one customer can have in the cart
+//   MAX_UNITS_PER_ORDER       most shoes (all items added up) in one order
+//   MAX_ORDER_VALUE           most an order can be worth, in rupees: the items after offers, before any coupon
+//                             or referral discount (+ tax + shipping)
+//   MAX_COD_ORDER_VALUE       most Cash on Delivery can collect, in rupees: what the customer pays at the door
+const ORDER_LIMITS = Object.freeze({
+  MAX_QUANTITY_PER_VARIANT: 5,
+  MAX_UNITS_PER_ORDER: 20,
+  MAX_ORDER_VALUE: 100000,
+  MAX_COD_ORDER_VALUE: 10000,
 });
 
 const LOW_STOCK_LIMIT = 5;
@@ -93,6 +114,9 @@ module.exports = {
   unpaidOnlineFilter,
   CANCEL_REASONS,
   RETURN_REASONS,
+  DAMAGE_RETURN_REASONS,
+  isDamageReturnReason,
   PRICING,
+  ORDER_LIMITS,
   LOW_STOCK_LIMIT,
 };
