@@ -51,6 +51,17 @@ app.use(cors({
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
+// Never let the browser (or a proxy) cache API responses. Without this, pressing Back after
+// logout can re-show the previous user's orders/profile straight from the HTTP cache.
+app.use('/api', (req, res, next) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
+  next();
+});
+
 connectDB();
 startPaymentWorker(); // closes unpaid online orders after 30 minutes / 4 failed attempts and gives the stock back
 
