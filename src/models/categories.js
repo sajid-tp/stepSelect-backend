@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { ICON_CLASS_LIMITS } = require('../constants/categoryConstants');
 
 const categorySchema = mongoose.Schema(
   {
@@ -8,9 +9,13 @@ const categorySchema = mongoose.Schema(
       trim: true,
     },
 
+    // Required/format rules are enforced in adminCategoryServices. Toggle / delete save with validateModifiedOnly,
+    // so older categories with an empty or short icon class can still be toggled and deleted.
     iconClass: {
       type: String,
       trim: true,
+      minlength: ICON_CLASS_LIMITS.MIN_LENGTH,
+      maxlength: ICON_CLASS_LIMITS.MAX_LENGTH,
     },
 
     description: {

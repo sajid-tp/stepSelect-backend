@@ -5,7 +5,54 @@ const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
+const { ICON_CLASS_LIMITS, ICON_CLASS_REGEX, NAME_LIMITS, DESCRIPTION_LIMITS } = require('../../constants/categoryConstants');
 
+// Icon class: required, 3-100 characters, letters/numbers/spaces/hyphens only. Returns the cleaned value.
+const validateIconClass = (value) => {
+  const icon = String(value ?? '').trim().replace(/\s+/g, ' ');
+  const { MIN_LENGTH, MAX_LENGTH } = ICON_CLASS_LIMITS;
+  let message = '';
+  if (!icon) message = 'Icon class is required';
+  else if (icon.length < MIN_LENGTH || icon.length > MAX_LENGTH)
+    message = `Icon class must be ${MIN_LENGTH} to ${MAX_LENGTH} characters`;
+  else if (!ICON_CLASS_REGEX.test(icon))
+    message = 'Icon class can only contain letters, numbers, spaces and hyphens';
+  if (message) throw createError(message, STATUS.BAD_REQUEST, 'INVALID_ICON_CLASS');
+  return icon;
+};
+
+
+// Category name: required, 2-50 characters. Returns the cleaned value (extra spaces collapsed).
+const validateCategoryName = (value) => {
+  // Anything that is not a string (object, array, number...) counts as "not provided"
+  const name = (typeof value === 'string' ? value : '').trim().replace(/\s+/g, ' ');
+  const { MIN_LENGTH, MAX_LENGTH } = NAME_LIMITS;
+  if (!name) {
+    throw createError(MESSAGES.CATEGORY.CATEGORY_NAME_IS_REQUIRED, STATUS.BAD_REQUEST, ERROR_CODES.CATEGORY_NAME_REQUIRED);
+  }
+  if (name.length < MIN_LENGTH) {
+    throw createError(`Category name must be at least ${MIN_LENGTH} characters.`, STATUS.BAD_REQUEST, 'INVALID_CATEGORY_NAME');
+  }
+  if (name.length > MAX_LENGTH) {
+    throw createError(`Category name cannot exceed ${MAX_LENGTH} characters.`, STATUS.BAD_REQUEST, 'INVALID_CATEGORY_NAME');
+  }
+  return name;
+};
+
+
+// Description: optional, 500 characters at most. Returns the cleaned value ('' when left empty).
+const validateDescription = (value) => {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') {
+    throw createError('Description must be text', STATUS.BAD_REQUEST, 'INVALID_CATEGORY_DESCRIPTION');
+  }
+  const description = value.trim().replace(/\s+/g, ' ');
+  const { MAX_LENGTH } = DESCRIPTION_LIMITS;
+  if (description.length > MAX_LENGTH) {
+    throw createError(`Description cannot exceed ${MAX_LENGTH} characters`, STATUS.BAD_REQUEST, 'INVALID_CATEGORY_DESCRIPTION');
+  }
+  return description;
+};
 
 const SORT_MAP = {
   newest: { createdAt: -1 },
@@ -73,19 +120,10 @@ const getCategories = async ({ search, page = 1, sort, status }) => {
 
 // 2. createCategory
 const createCategory = async ({ categoryName, iconClass, description }) => {
-  const name = (categoryName || '').trim();
+  const name = validateCategoryName(categoryName);
 
-  if (!name) {
-    throw createError(MESSAGES.CATEGORY.CATEGORY_NAME_IS_REQUIRED, STATUS.BAD_REQUEST, ERROR_CODES.CATEGORY_NAME_REQUIRED);
-  }
-
-  if (name.length < 3) {
-    throw createError(
-      MESSAGES.CATEGORY.CATEGORY_NAME_IS_REQUIRED_WITH_ATLEAST_3_CHARACTERS,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.CATEGORY_NAME_REQUIRED
-    );
-  }
+  const icon = validateIconClass(iconClass);
+  const cleanDescription = validateDescription(description);
 
   const existingCategory = await Category.findOne({
     categoryName: name,
@@ -103,8 +141,8 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
   try {
     const category = await Category.create({
       categoryName: name,
-      iconClass,
-      description,
+      iconClass: icon,
+      description: cleanDescription,
     });
 
     return formatCategory(category);
@@ -144,11 +182,10 @@ const updateCategory = async (categoryId, { categoryName, iconClass, description
     throw createError(MESSAGES.CATEGORY.CANNOT_EDIT_AN_INACTIVE_CATEGORY, STATUS.BAD_REQUEST, ERROR_CODES.CATEGORY_INACTIVE);
   }
 
-  const name = (categoryName || '').trim();
+  const name = validateCategoryName(categoryName);
 
-  if (!name) {
-    throw createError(MESSAGES.CATEGORY.CATEGORY_NAME_IS_REQUIRED, STATUS.BAD_REQUEST, ERROR_CODES.CATEGORY_NAME_REQUIRED);
-  }
+  const icon = validateIconClass(iconClass);
+  const cleanDescription = validateDescription(description);
 
   const duplicateCategory = await Category.findOne({
     categoryName: name,
@@ -165,8 +202,8 @@ const updateCategory = async (categoryId, { categoryName, iconClass, description
   }
 
   existingCategory.categoryName = name;
-  existingCategory.iconClass = iconClass;
-  existingCategory.description = description;
+  existingCategory.iconClass = icon;
+  existingCategory.description = cleanDescription;
 
   const updatedCategory = await existingCategory.save();
 
@@ -194,7 +231,9 @@ const toggleCategoryStatus = async (categoryId) => {
   }
 
   existingCategory.isActive = !existingCategory.isActive;
-  await existingCategory.save();
+  // Only check the field that changed. Older categories can have an empty / too-short icon class,
+  // and a full check would fail on that old value and block the status change.
+  await existingCategory.save({ validateModifiedOnly: true });
 
   return formatCategory(existingCategory)
 };
@@ -218,7 +257,9 @@ const deleteCategory = async (categoryId) => {
   existingCategory.isActive = false;
   existingCategory.deletedAt = new Date();
 
-  await existingCategory.save();
+  // Only check the fields that changed (see toggleCategoryStatus) so an older category
+  // with an empty / too-short icon class can still be deleted.
+  await existingCategory.save({ validateModifiedOnly: true });
 
   return formatCategory(existingCategory)
 };

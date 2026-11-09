@@ -122,7 +122,13 @@ const getCheckoutSummary = async (userId) => {
           couponCode: applied.coupon.couponCode,
           discountType: applied.coupon.discountType,
           discountValue: applied.coupon.discountValue,
+          maximumDiscount: applied.coupon.maximumDiscount ?? null,
           discountAmount: totals.couponDiscount,
+          // true when the percentage would have given more than the maximum discount, so the cap was used
+          capApplied:
+            applied.coupon.discountType === 'percentage' &&
+            applied.coupon.maximumDiscount > 0 &&
+            (base * applied.coupon.discountValue) / 100 > applied.coupon.maximumDiscount,
         }
       : null,
     couponMessage, 

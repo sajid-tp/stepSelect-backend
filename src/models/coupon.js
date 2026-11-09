@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { COUPON_LIMITS } = require('../constants/couponConstants');
 
 const couponSchema = new mongoose.Schema(
   {
@@ -7,13 +8,13 @@ const couponSchema = new mongoose.Schema(
       required: [true, 'Coupon code is required'],
       trim: true,
       uppercase: true,
-      minlength: 3,
-      maxlength: 40,
+      minlength: COUPON_LIMITS.CODE_MIN_LENGTH,
+      maxlength: COUPON_LIMITS.CODE_MAX_LENGTH,
     },
     description: {
       type: String,
       trim: true,
-      maxlength: 500,
+      maxlength: COUPON_LIMITS.DESCRIPTION_MAX_LENGTH,
       default: '',
     },
     discountType: {
@@ -25,15 +26,16 @@ const couponSchema = new mongoose.Schema(
       type: Number,
       required: [true, 'Discount value is required'],
       min: [0.01, 'Discount value must be greater than zero'],
+      max: [COUPON_LIMITS.MAX_FLAT_DISCOUNT, 'Discount value is too large'],
     },
     maximumDiscount: {
       type: Number,
-      min: [0, 'Maximum discount cannot be negative'],
+      min: [COUPON_LIMITS.MIN_DISCOUNT_CAP, 'Maximum discount must be at least ₹1'],
       default: null,
     },
     minimumPurchase: {
       type: Number,
-      min: [0, 'Minimum purchase cannot be negative'],
+      min: [COUPON_LIMITS.MIN_PURCHASE_MIN, 'Minimum purchase cannot be negative'],
       default: 0,
     },
     startDate: {
@@ -46,13 +48,14 @@ const couponSchema = new mongoose.Schema(
     },
     redemptionLimit: {
       type: Number,
-      min: [1, 'Redemption limit must be at least 1'],
+      min: [COUPON_LIMITS.MIN_REDEMPTION_LIMIT, 'Redemption limit must be at least 1'],
       default: null,
     },
 
     usageLimitPerUser: {
       type: Number,
-      min: [1, 'Per-user usage limit must be at least 1'],
+      min: [COUPON_LIMITS.MIN_USES_PER_CUSTOMER, 'Per-user usage limit must be at least 1'],
+      max: [COUPON_LIMITS.MAX_USES_PER_CUSTOMER, 'Per-user usage limit cannot exceed 5'],
       default: 1,
     },
     // Increment this only when an order is successfully placed with the coupon.
@@ -74,8 +77,13 @@ const couponSchema = new mongoose.Schema(
 );
 
 couponSchema.pre('validate', function () {
-  if (this.discountType === 'percentage' && this.discountValue > 100) {
-    this.invalidate('discountValue', 'Percentage discount cannot exceed 100');
+  // Only on new coupons or when the value/type changes, so an older coupon can still be activated/deactivated
+  if (
+    this.discountType === 'percentage' &&
+    this.discountValue > COUPON_LIMITS.MAX_PERCENT &&
+    (this.isNew || this.isModified('discountValue') || this.isModified('discountType'))
+  ) {
+    this.invalidate('discountValue', `Percentage discount cannot exceed ${COUPON_LIMITS.MAX_PERCENT}`);
   }
 
   if (this.discountType === 'flat' && this.maximumDiscount != null) {
