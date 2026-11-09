@@ -4,6 +4,42 @@ const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
+const { NAME_LIMITS, DESCRIPTION_LIMITS } = require('../../constants/brandConstants');
+
+// Brand name: required, 2-50 characters. Returns the cleaned value (extra spaces collapsed).
+const validateBrandName = (value) => {
+  // Anything that is not a string (object, array, number...) counts as "not provided"
+  const name = (typeof value === 'string' ? value : '').trim().replace(/\s+/g, ' ');
+  const { MIN_LENGTH, MAX_LENGTH } = NAME_LIMITS;
+  if (!name) {
+    throw createError(
+      MESSAGES.BRAND.BRAND_NAME_IS_REQUIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.BRAND_NAME_REQUIRED
+    );
+  }
+  if (name.length < MIN_LENGTH) {
+    throw createError(`Brand name must be at least ${MIN_LENGTH} characters.`, STATUS.BAD_REQUEST, 'INVALID_BRAND_NAME');
+  }
+  if (name.length > MAX_LENGTH) {
+    throw createError(`Brand name cannot exceed ${MAX_LENGTH} characters.`, STATUS.BAD_REQUEST, 'INVALID_BRAND_NAME');
+  }
+  return name;
+};
+
+// Description: optional, 500 characters at most. Returns the trimmed text ('' when left empty).
+const validateDescription = (value) => {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') {
+    throw createError('Description must be text.', STATUS.BAD_REQUEST, 'INVALID_BRAND_DESCRIPTION');
+  }
+  const text = value.trim();
+  const { MAX_LENGTH } = DESCRIPTION_LIMITS;
+  if (text.length > MAX_LENGTH) {
+    throw createError(`Description cannot exceed ${MAX_LENGTH} characters.`, STATUS.BAD_REQUEST, 'INVALID_BRAND_DESCRIPTION');
+  }
+  return text;
+};
 
 const SORT_MAP = {
   newest: { createdAt: -1 },
@@ -90,16 +126,10 @@ const createBrand = async ({
   logo,
 }) => {
 
-  const name = (brandName || '').trim();
+  const name = validateBrandName(brandName);
 
 
-  if (!name) {
-    throw createError(
-      MESSAGES.BRAND.BRAND_NAME_IS_REQUIRED,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.BRAND_NAME_REQUIRED
-    );
-  }
+  const descriptionText = validateDescription(description);
 
 
   const existingBrand = await Brand.findOne({
@@ -122,7 +152,7 @@ const createBrand = async ({
 
     const brand = await Brand.create({
       brandName: name,
-      description,
+      description: descriptionText,
       logo,
     });
 
@@ -197,15 +227,10 @@ const updateBrand = async (
     );
   }
 
-  const name = (brandName || '').trim();
+  const name = validateBrandName(brandName);
 
-  if (!name) {
-    throw createError(
-      MESSAGES.BRAND.BRAND_NAME_IS_REQUIRED,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.BRAND_NAME_REQUIRED
-    );
-  }
+
+  const descriptionText = validateDescription(description);
 
 
   const duplicateBrand = await Brand.findOne({
@@ -226,7 +251,7 @@ const updateBrand = async (
   }
 
   existingBrand.brandName = name;
-  existingBrand.description = description;
+  existingBrand.description = descriptionText;
   existingBrand.logo = logo;
 
   try {

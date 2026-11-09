@@ -18,16 +18,32 @@ const ALLOWED_FIELDS = [
   'isActive',
 ];
 
+const bad = (message, code) => createError(message, STATUS.BAD_REQUEST, code);
+
 // A percentage coupon must take off a whole number of percent (1 to 90). Flat coupons are not checked here.
 const validatePercentageValue = (discountType, discountValue) => {
   if (discountType !== 'percentage' || discountValue === undefined || discountValue === null) return;
   const value = Number(discountValue);
   if (!Number.isInteger(value) || value < COUPON_LIMITS.MIN_PERCENT || value > COUPON_LIMITS.MAX_PERCENT) {
-    throw createError(
+    throw bad(
       `Percentage discount must be a whole number from ${COUPON_LIMITS.MIN_PERCENT} to ${COUPON_LIMITS.MAX_PERCENT}`,
-      STATUS.BAD_REQUEST,
       'INVALID_DISCOUNT_VALUE'
     );
+  }
+};
+
+// A fixed discount must be between ₹1 and ₹25,000 (up to 2 decimal places).
+const validateFlatValue = (discountType, discountValue) => {
+  if (discountType !== 'flat' || discountValue === undefined || discountValue === null) return;
+  const value = Number(discountValue);
+  if (value < COUPON_LIMITS.MIN_FLAT_DISCOUNT || value > COUPON_LIMITS.MAX_FLAT_DISCOUNT) {
+    throw bad(
+      `Fixed discount must be between ${formatINR(COUPON_LIMITS.MIN_FLAT_DISCOUNT)} and ${formatINR(COUPON_LIMITS.MAX_FLAT_DISCOUNT)}`,
+      'INVALID_DISCOUNT_VALUE'
+    );
+  }
+  if (!hasMaxTwoDecimals(value)) {
+    throw bad('Fixed discount can have at most 2 decimal places', 'INVALID_DISCOUNT_VALUE');
   }
 };
 
@@ -40,14 +56,14 @@ const validateCouponInput = (data, { creating = false } = {}) => {
   if (creating) {
     for (const field of ['couponCode', 'discountType', 'discountValue']) {
       if (data[field] === undefined || data[field] === null || data[field] === '') {
-        throw createError(`${field} is required`, STATUS.BAD_REQUEST, 'COUPON_FIELD_REQUIRED');
+        throw bad(`${field} is required`, 'COUPON_FIELD_REQUIRED');
       }
     }
   }
 
   if (data.couponCode !== undefined) {
     if (typeof data.couponCode !== 'string' || !data.couponCode.trim()) {
-      throw createError('Coupon code must be a non-empty string', STATUS.BAD_REQUEST, 'INVALID_COUPON_CODE');
+      throw bad('Coupon code must be a non-empty string', 'INVALID_COUPON_CODE');
     }
     data.couponCode = data.couponCode.trim().toUpperCase();
     if (data.couponCode.length < CODE_MIN || data.couponCode.length > CODE_MAX) {
@@ -59,13 +75,13 @@ const validateCouponInput = (data, { creating = false } = {}) => {
   }
 
   if (data.discountType !== undefined && !['percentage', 'flat'].includes(data.discountType)) {
-    throw createError('discountType must be percentage or flat', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_TYPE');
+    throw bad('discountType must be percentage or flat', 'INVALID_DISCOUNT_TYPE');
   }
 
   if (data.discountValue !== undefined) {
     const value = Number(data.discountValue);
     if (!Number.isFinite(value) || value <= 0) {
-      throw createError('discountValue must be a number greater than zero', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
+      throw bad('discountValue must be a number greater than zero', 'INVALID_DISCOUNT_VALUE');
     }
     if (!hasMaxTwoDecimals(value)) {
       throw createError('Discount value can have at most 2 decimal places', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
@@ -92,13 +108,23 @@ const validateCouponInput = (data, { creating = false } = {}) => {
       }
       data[field] = valueNum;
     }
+    if (max === null && num > Number.MAX_SAFE_INTEGER) {
+      throw bad(`${label} is too large`, 'INVALID_COUPON_LIMIT');
+    }
+    if (wholeOnly && !Number.isInteger(num)) {
+      throw bad(`${label} must be a whole number`, 'INVALID_COUPON_LIMIT');
+    }
+    if (isMoney && !hasMaxTwoDecimals(num)) {
+      throw bad(`${label} can have at most 2 decimal places`, 'INVALID_COUPON_LIMIT');
+    }
+    data[field] = num;
   }
 
   for (const field of ['startDate', 'expiryDate']) {
     if (data[field] !== undefined && data[field] !== null && data[field] !== '') {
       const date = new Date(data[field]);
       if (Number.isNaN(date.getTime())) {
-        throw createError(`${field} must be a valid date`, STATUS.BAD_REQUEST, 'INVALID_COUPON_DATE');
+        throw bad(`${field} must be a valid date`, 'INVALID_COUPON_DATE');
       }
       data[field] = date;
     } else if (data[field] === '') {
@@ -107,11 +133,11 @@ const validateCouponInput = (data, { creating = false } = {}) => {
   }
 
   if (data.startDate && data.expiryDate && data.expiryDate < data.startDate) {
-    throw createError('expiryDate must be on or after startDate', STATUS.BAD_REQUEST, 'INVALID_COUPON_DATE_RANGE');
+    throw bad('expiryDate must be on or after startDate', 'INVALID_COUPON_DATE_RANGE');
   }
 
   if (data.isActive !== undefined && typeof data.isActive !== 'boolean') {
-    throw createError('isActive must be true or false', STATUS.BAD_REQUEST, 'INVALID_ACTIVE_STATUS');
+    throw bad('isActive must be true or false', 'INVALID_ACTIVE_STATUS');
   }
 };
 
