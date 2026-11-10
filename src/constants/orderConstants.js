@@ -91,15 +91,9 @@ const PRICING = Object.freeze({
 
 // Business limits for one order. Change these numbers to change the rules everywhere (cart, checkout, payment).
 //   MAX_QUANTITY_PER_VARIANT  most of the same variant + size one customer can have in the cart
-//   MAX_UNITS_PER_ORDER       most shoes (all items added up) in one order
-//   MAX_ORDER_VALUE           most an order can be worth, in rupees: the items after offers, before any coupon
-//                             or referral discount (+ tax + shipping)
-//   MAX_COD_ORDER_VALUE       most Cash on Delivery can collect, in rupees: what the customer pays at the door
+// There is no limit on the number of items, on the order value, or on Cash on Delivery.
 const ORDER_LIMITS = Object.freeze({
   MAX_QUANTITY_PER_VARIANT: 5,
-  MAX_UNITS_PER_ORDER: 20,
-  MAX_ORDER_VALUE: 100000,
-  MAX_COD_ORDER_VALUE: 10000,
 });
 
 const LOW_STOCK_LIMIT = 5;

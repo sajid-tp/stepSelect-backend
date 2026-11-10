@@ -22,11 +22,9 @@ const WALLET_DEBIT_SOURCES = Object.freeze([WALLET_SOURCE.ORDER_PAYMENT]);
 // State of one Razorpay top-up attempt
 const WALLET_TOPUP_STATUS = Object.freeze({ CREATED: 'created', PAID: 'paid', FAILED: 'failed' });
 
-// Rupee limits for a top-up
+// Rupee limit for a top-up (there is no upper limit on a top-up or on the wallet balance)
 const WALLET_LIMITS = Object.freeze({
   MIN_TOP_UP: 100,
-  MAX_TOP_UP: 50000,
-  MAX_BALANCE: 100000,
 });
 
 module.exports = { WALLET_TX_TYPE, WALLET_SOURCE, WALLET_DEBIT_SOURCES, WALLET_TOPUP_STATUS, WALLET_LIMITS };

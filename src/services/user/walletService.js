@@ -178,9 +178,6 @@ const validateTopUpAmount = (amount) => {
   if (rupees < WALLET_LIMITS.MIN_TOP_UP) {
     throw createError(`The minimum amount is ₹${WALLET_LIMITS.MIN_TOP_UP}.`, STATUS.BAD_REQUEST);
   }
-  if (rupees > WALLET_LIMITS.MAX_TOP_UP) {
-    throw createError(`You can add up to ₹${WALLET_LIMITS.MAX_TOP_UP.toLocaleString('en-IN')} at a time.`, STATUS.BAD_REQUEST);
-  }
   return rupees;
 };
 
@@ -190,14 +187,6 @@ const initiateTopUp = async (userId, amount) => {
   }
 
   const rupees = validateTopUpAmount(amount);
-
-  const balance = await getBalance(userId);
-  if (balance + rupees > WALLET_LIMITS.MAX_BALANCE) {
-    throw createError(
-      `The wallet can hold up to ₹${WALLET_LIMITS.MAX_BALANCE.toLocaleString('en-IN')}.`,
-      STATUS.BAD_REQUEST
-    );
-  }
 
   // The id is made first so it can go on the Razorpay receipt (max 40 characters)
   const topUpId = new mongoose.Types.ObjectId();

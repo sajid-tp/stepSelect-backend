@@ -320,7 +320,9 @@ const toOrderView = (order, items) => {
     // even while another pair of the same order is still on its way.
     canReturn: canReturn && !isUnpaidOnline(order),
 
-    canDownloadInvoice: order.status !== ORDER_STATUS.CANCELLED && !isUnpaidOnline(order),
+    // Available from the moment the order is placed, also after it was cancelled.
+    // Only an online order that is not paid yet (or whose payment failed) has no invoice.
+    canDownloadInvoice: !isUnpaidOnline(order),
   };
 };
 
@@ -1025,20 +1027,22 @@ const getInvoiceData = async (userId, orderRef) => {
   const order = await findUserOrder(userId, orderRef);
   assertNotUnpaidOnline(order);
 
-  if (order.status === ORDER_STATUS.CANCELLED) {
-    throw createError(
-      MESSAGES.ORDER.INVOICE_NOT_AVAILABLE_FOR_CANCELLED_ORDER,
-      STATUS.BAD_REQUEST
-    );
+  const isCancelledOrder = order.status === ORDER_STATUS.CANCELLED;
+
+  // A cancelled order still gets an invoice: it lists every item that was ordered, marked Cancelled.
+  // Otherwise the items cancelled one by one are left out.
+  const items = await OrderItem.find(
+    isCancelledOrder
+      ? { orderId: order._id }
+      : { orderId: order._id, status: { $ne: ITEM_STATUS.CANCELLED } }
+  );
+
+  if (isCancelledOrder) {
+    return {
+      order,
+      items: items.map((item) => item.toObject()),
+    };
   }
-
-  const items = await OrderItem.find({
-    orderId: order._id,
-    status: {
-      $ne: ITEM_STATUS.CANCELLED,
-    },
-  });
-
 
   const invoiceItems = items.map((item) => {
     const remainingQuantity = getRemainingQuantity(item);

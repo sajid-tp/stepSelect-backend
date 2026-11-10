@@ -98,6 +98,16 @@ const writeInvoice = (res, { order, items }) => {
   row('Shipping', order.shippingFee > 0 ? money(order.shippingFee) : 'Free');
   row('Total', money(order.totalAmount), true);
 
+  if (order.status === 'cancelled') {
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#b91c1c');
+    doc.text(
+      'This order was cancelled. Any amount already paid is refunded to your wallet.',
+      50,
+      y + 10,
+      { align: 'left', width: 495 }
+    );
+  }
+
   doc.fontSize(9).fillColor('#777').font('Helvetica');
   doc.text('Status and amounts are as of the invoice date shown above.', 50, 755, { align: 'center', width: 495 });
   doc.text('Thank you for shopping with Step Select.', 50, 770, { align: 'center', width: 495 });

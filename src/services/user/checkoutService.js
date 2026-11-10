@@ -14,7 +14,6 @@ const {
   PAYMENT_METHODS,
   PAYMENT_STATUS,
   PRICING,
-  ORDER_LIMITS,
 } = require('../../constants/orderConstants');
 const {
   isObjectId,
@@ -31,36 +30,6 @@ const { getEnabledMethods } = require('../payment/gateways');
 const { releaseUserUnpaidOrders } = require('../payment/unpaidOrders');
 const walletService = require('./walletService');
 const referralService = require('./referralService');
-
-// The order limits (units, value, Cash on Delivery). Returns null when the order is fine, otherwise { code, message }.
-// Order value = what the items are worth after offers, BEFORE a coupon / referral discount, so a coupon can't be used
-// to get a bigger order through. Cash on Delivery is checked on what the customer actually pays at the door.
-const getLimitIssue = (lines, totals, { isCod = false } = {}) => {
-  const units = lines.reduce((sum, l) => sum + l.quantity, 0);
-  if (units > ORDER_LIMITS.MAX_UNITS_PER_ORDER) {
-    return {
-      code: ERROR_CODES.MAX_UNITS_EXCEEDED,
-      message: MESSAGES.CHECKOUT.TOO_MANY_UNITS(ORDER_LIMITS.MAX_UNITS_PER_ORDER),
-    };
-  }
-
-  const orderValue = totals.totalAmount + totals.couponDiscount + totals.referralDiscount;
-  if (orderValue > ORDER_LIMITS.MAX_ORDER_VALUE) {
-    return {
-      code: ERROR_CODES.MAX_ORDER_VALUE_EXCEEDED,
-      message: MESSAGES.CHECKOUT.ORDER_VALUE_TOO_HIGH(ORDER_LIMITS.MAX_ORDER_VALUE),
-    };
-  }
-
-  if (isCod && totals.totalAmount > ORDER_LIMITS.MAX_COD_ORDER_VALUE) {
-    return {
-      code: ERROR_CODES.COD_LIMIT_EXCEEDED,
-      message: MESSAGES.CHECKOUT.COD_LIMIT_EXCEEDED(ORDER_LIMITS.MAX_COD_ORDER_VALUE),
-    };
-  }
-
-  return null;
-};
 
 const getCheckoutSummary = async (userId) => {
   // Shoes held by an earlier online attempt that was never finished go back on the shelf, so they show up as available.
@@ -89,9 +58,6 @@ const getCheckoutSummary = async (userId) => {
   const totals = calculateTotals(buyable, undefined, applied.discount, referral.discount);
   const defaultAddress = addresses.find((a) => a.isDefault) || null;
 
-  // Units / value limits stop the order; a Cash on Delivery limit only hides COD (the other methods still work)
-  const limitIssue = getLimitIssue(buyable, totals);
-  const codAllowed = !getLimitIssue(buyable, totals, { isCod: true });
 
   return {
     addresses,
@@ -139,20 +105,11 @@ const getCheckoutSummary = async (userId) => {
       minOrderAmount: referral.minOrderAmount,
       hint: referral.hint,
     },
-    // COD (only when the amount to pay is within the COD limit) + Razorpay (when on) + the wallet
-    paymentMethods: [
-      ...getEnabledMethods().filter((method) => method !== PAYMENT_METHODS.COD || codAllowed),
-      PAYMENT_METHODS.WALLET,
-    ],
-    limits: {
-      maxUnitsPerOrder: ORDER_LIMITS.MAX_UNITS_PER_ORDER,
-      maxOrderValue: ORDER_LIMITS.MAX_ORDER_VALUE,
-      maxCodOrderValue: ORDER_LIMITS.MAX_COD_ORDER_VALUE,
-    },
-    limitIssue: limitIssue ? limitIssue.message : null,
+    // COD + Razorpay (when on) + the wallet
+    paymentMethods: [...getEnabledMethods(), PAYMENT_METHODS.WALLET],
     walletBalance,
 
-    canPlaceOrder: lines.length > 0 && buyable.length === lines.length && addresses.length > 0 && !limitIssue,
+    canPlaceOrder: lines.length > 0 && buyable.length === lines.length && addresses.length > 0,
   };
 };
 
@@ -234,10 +191,6 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
   const coupon = applied.coupon;
   const referral = await referralService.resolveReferralDiscount(userId, base);
   const totals = calculateTotals(lines, undefined, applied.discount, referral.discount);
-
-  // Units / order value for every order, plus the Cash on Delivery limit when the customer pays at the door
-  const limitIssue = getLimitIssue(lines, totals, { isCod: !isOnline });
-  if (limitIssue) throw createError(limitIssue.message, STATUS.BAD_REQUEST, limitIssue.code);
 
   const couponShares = allocateCouponShares(lines, totals.couponDiscount);
   const referralShares = allocateCouponShares(lines, totals.referralDiscount);

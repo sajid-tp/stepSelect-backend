@@ -89,8 +89,6 @@ const buildCartView = async (cart) => {
     totalSavings: 0, // totalMrp - totalPrice
     totalItems: 0,
     maxQuantityPerItem: MAX_QUANTITY_PER_ITEM,
-    maxUnitsPerOrder: ORDER_LIMITS.MAX_UNITS_PER_ORDER,
-    maxOrderValue: ORDER_LIMITS.MAX_ORDER_VALUE,
   };
 
   if (!cart || cart.items.length === 0) return view;
@@ -183,28 +181,6 @@ const buildCartView = async (cart) => {
   return view;
 };
 
-// Internal Helper: the whole cart must stay within the units-per-order and order-value limits.
-// Called when something is added or a quantity goes up (taking things out is always allowed).
-const checkCartLimits = async (cart) => {
-  const units = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-  if (units > ORDER_LIMITS.MAX_UNITS_PER_ORDER) {
-    throw createError(
-      MESSAGES.CART.MAX_UNITS_PER_ORDER_EXCEEDED(ORDER_LIMITS.MAX_UNITS_PER_ORDER),
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.MAX_UNITS_EXCEEDED
-    );
-  }
-
-  const view = await buildCartView(cart);
-  if (view.totalPrice > ORDER_LIMITS.MAX_ORDER_VALUE) {
-    throw createError(
-      MESSAGES.CART.MAX_ORDER_VALUE_EXCEEDED(ORDER_LIMITS.MAX_ORDER_VALUE),
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.MAX_ORDER_VALUE_EXCEEDED
-    );
-  }
-};
-
 // 1. Get Cart
 const getCart = async (userId) => {
   const cart = await Cart.findOne({ userId });
@@ -233,7 +209,6 @@ const addToCart = async (userId, { variantId, size, quantity }) => {
     cart.items.push({ variantId, size: sizeValue, quantity: qty });
   }
 
-  await checkCartLimits(cart);
   await cart.save();
 
   // Moved to cart: take this colour + size off the wishlist (if it was there)
@@ -261,7 +236,6 @@ const updateCartItem = async (userId, variantId, size, quantity) => {
   }
 
   item.quantity = qty;
-  if (isIncrease) await checkCartLimits(cart);
   await cart.save();
   return await buildCartView(cart);
 };
