@@ -4,17 +4,20 @@ const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
 
+// Get orders
 const getOrders = async (req, res) => {
   const { search, status, sort, from, to, page, limit } = req.query;
   const data = await adminOrderService.getOrders({ search, status, sort, from, to, page, limit });
   return res.status(STATUS.OK).json({ data });
 };
 
+// Get order
 const getOrder = async (req, res) => {
   const data = await adminOrderService.getOrder(req.params.orderId);
   return res.status(STATUS.OK).json({ data });
 };
 
+// Item status
 const updateItemStatus = async (req, res) => {
   const { orderId, itemId } = req.params;
   const { status } = req.body || {};
@@ -22,12 +25,14 @@ const updateItemStatus = async (req, res) => {
   return res.status(STATUS.OK).json({ message: MESSAGES.ORDER.ITEM_STATUS_UPDATED, data });
 };
 
+// Order status
 const updateOrderStatus = async (req, res) => {
   const { status } = req.body || {};
   const data = await adminOrderService.updateOrderStatus(req.params.orderId, status);
   return res.status(STATUS.OK).json({ message: MESSAGES.ORDER.ORDER_STATUS_UPDATED, data });
 };
 
+// Handle return
 const handleReturn = async (req, res) => {
   const { orderId, itemId } = req.params;
   const { action, reason, restock } = req.body || {};

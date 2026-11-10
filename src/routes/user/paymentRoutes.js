@@ -13,7 +13,6 @@ const {
 
 const router = express.Router();
 
-// Called by Razorpay itself (no login cookie, checked by its signature instead)
 router.post('/webhook/razorpay', razorpayWebhook);
 
 router.post('/initiate', protect('user'), initiate);

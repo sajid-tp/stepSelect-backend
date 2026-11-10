@@ -1,4 +1,3 @@
-// src/services/admin/adminInventoryServices.js
 const Variant = require('../../models/variants');
 const Product = require('../../models/products');
 const createError = require('../../utils/createError');
@@ -11,7 +10,6 @@ const { isObjectId, escapeRegex, firstImage } = require('../../utils/orderHelper
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
 
-// out_of_stock: nothing left | low_stock: on average LOW_STOCK_LIMIT or fewer pairs per size | in_stock
 const getStockStatus = (sizes) => {
   const total = sizes.reduce((sum, s) => sum + (s.stock || 0), 0);
   if (total === 0) return 'out_of_stock';
@@ -38,7 +36,7 @@ const toRow = (variant, product) => ({
   updatedAt: variant.updatedAt,
 });
 
-// 1. Inventory list: one row per product colour, with stock per size
+// Get inventory
 const getInventory = async ({ search, stockFilter, sort, page, limit } = {}) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
@@ -46,7 +44,6 @@ const getInventory = async ({ search, stockFilter, sort, page, limit } = {}) => 
   const text = search ? String(search).trim() : '';
   const regex = text ? new RegExp(escapeRegex(text), 'i') : null;
 
-  // Same joins for the list and for the summary cards
   const joinStages = [
     { $match: { deletedAt: null } },
     { $lookup: { from: 'products', localField: 'productId', foreignField: '_id', as: 'product' } },
@@ -91,7 +88,6 @@ const getInventory = async ({ search, stockFilter, sort, page, limit } = {}) => 
     },
   });
 
-  // Counts for the cards at the top of the page (all variants, not affected by search / filter)
   const lowLimit = { $multiply: [LOW_STOCK_LIMIT, '$sizeCount'] };
   const summaryPipeline = [
     ...joinStages,
@@ -134,8 +130,7 @@ const getInventory = async ({ search, stockFilter, sort, page, limit } = {}) => 
   };
 };
 
-// 2. Change the stock of one size. Send { size, stock } to set an exact number,
-//    or { size, adjust } to add / remove (safe while customers are buying).
+// Update stock
 const updateStock = async (variantId, { size, stock, adjust } = {}) => {
   if (!isObjectId(variantId)) {
     throw createError(MESSAGES.VARIANT.INVALID_VARIANT_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_VARIANT_ID);
@@ -151,7 +146,6 @@ const updateStock = async (variantId, { size, stock, adjust } = {}) => {
     if (!Number.isInteger(delta)) {
       throw createError(MESSAGES.INVENTORY.INVALID_STOCK_VALUE, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_STOCK);
     }
-    // The $gte check stops the stock from going below 0 even if someone buys at the same moment
     updated = await Variant.findOneAndUpdate(
       { _id: variantId, deletedAt: null, sizes: { $elemMatch: { size: sizeValue, stock: { $gte: delta < 0 ? -delta : 0 } } } },
       { $inc: { 'sizes.$.stock': delta } },
@@ -170,7 +164,6 @@ const updateStock = async (variantId, { size, stock, adjust } = {}) => {
   }
 
   if (!updated) {
-    // Work out which problem it was, for a clear message
     const exists = await Variant.findOne({ _id: variantId, deletedAt: null });
     if (!exists) {
       throw createError(MESSAGES.VARIANT.VARIANT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.VARIANT_NOT_FOUND);
@@ -181,7 +174,6 @@ const updateStock = async (variantId, { size, stock, adjust } = {}) => {
     throw createError(MESSAGES.INVENTORY.INVALID_STOCK_VALUE, STATUS.CONFLICT, ERROR_CODES.INVALID_STOCK);
   }
 
-  // The list rows show the product name, so send it back too
   const product = await Product.findById(updated.productId).select('productName');
   return toRow(updated, product);
 };

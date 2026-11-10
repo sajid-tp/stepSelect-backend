@@ -34,7 +34,6 @@ const orderItemSchema = new mongoose.Schema(
     couponShare: { type: Number, default: 0, min: 0 },
     referralShare: { type: Number, default: 0, min: 0 },
 
-    // Which offer produced discountPercent (product / category offer), for the records
     offerName: { type: String, default: null },
     offerSource: { type: String, enum: ['product', 'category', null], default: null },
 
@@ -54,7 +53,6 @@ const orderItemSchema = new mongoose.Schema(
     
     returnRequestedQuantity: { type: Number, default: 0 },
 
-    // What the admin decided for approved returns: units put back on the shelf / units NOT added to stock
     returnRestockedQuantity: { type: Number, default: 0 },
     returnDiscardedQuantity: { type: Number, default: 0 },
 

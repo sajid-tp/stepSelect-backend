@@ -3,7 +3,7 @@ const brandService =
   require('../../services/user/brandService');
 
 
-// GET /api/brands
+// Get brands
 const getBrands = async (req, res) => {
   const data =
     await brandService.getBrands();

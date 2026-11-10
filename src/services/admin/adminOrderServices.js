@@ -1,4 +1,3 @@
-// src/services/admin/adminOrderServices.js
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
 const User = require('../../models/user');
@@ -46,26 +45,21 @@ const toUserView = (user) =>
     ? { id: String(user._id), username: user.username, email: user.email, phoneNumber: user.phoneNumber || '' }
     : null;
 
-// 1. Orders list: newest first by default, with search / status filter / sort / date range / pagination
+// Get orders
 const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-  // Online orders that were never paid are not real orders yet
   const filter = { $nor: [unpaidOnlineFilter()] };
 
-  // Orders that have a product waiting for the admin to approve / reject its return.
-  // (also gives the number shown on the "Returns" tab, whatever the other filters are)
   const returnOrderIds = await OrderItem.distinct('orderId', { status: ITEM_STATUS.RETURN_REQUESTED });
 
   if (status === ITEM_STATUS.RETURN_REQUESTED) {
-    // the "Returns" tab
     filter._id = { $in: returnOrderIds };
   } else if (status && Object.values(ORDER_STATUS).includes(status)) {
     filter.status = status;
   }
 
-  // Date range on the order date (from / to as YYYY-MM-DD)
   if (from || to) {
     filter.createdAt = {};
     if (from && !isNaN(new Date(from))) filter.createdAt.$gte = new Date(from);
@@ -77,7 +71,6 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
     if (Object.keys(filter.createdAt).length === 0) delete filter.createdAt;
   }
 
-  // Search by order number, customer name or customer email
   const text = search ? String(search).trim() : '';
   if (text) {
     const regex = new RegExp(escapeRegex(text), 'i');
@@ -115,7 +108,6 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
       paymentStatus: o.paymentStatus,
       totalAmount: o.totalAmount,
       itemCount: (counts.find((c) => String(c._id) === String(o._id)) || {}).count || 0,
-      // products of this order whose return the admin still has to decide on (orange pill in the list)
       returnRequestCount: (counts.find((c) => String(c._id) === String(o._id)) || {}).returnRequests || 0,
       user: toUserView(o.userId),
     })),
@@ -129,26 +121,21 @@ const getOrders = async ({ search, status, sort, from, to, page, limit } = {}) =
   };
 };
 
-// Item statuses the admin can still move on from. Delivered is final (after that the customer may ask for a return).
 const OPEN_ITEM_STATUSES = [ITEM_STATUS.PENDING, ITEM_STATUS.SHIPPED, ITEM_STATUS.OUT_FOR_DELIVERY];
 
-// An online order can only move forward once its payment has arrived (Cash on Delivery pays at the door)
 const isPayable = (order) => order.paymentMethod === PAYMENT_METHODS.COD || order.paymentStatus === PAYMENT_STATUS.PAID;
 
-// The statuses ONE product may move to next, straight from the STATUS_TRANSITIONS table
-// (an unpaid online order can only be cancelled, never shipped).
 const nextStatuses = (order, current) => {
   const next = STATUS_TRANSITIONS[current] || [];
   return isPayable(order) ? next : next.filter((s) => s === ORDER_STATUS.CANCELLED);
 };
 
-// What the status dropdown of ONE product can offer right now.
 const itemAllowedStatuses = (order, item) => {
   if (!OPEN_ITEM_STATUSES.includes(item.status) || remainingQuantity(item) < 1) return [];
   return nextStatuses(order, item.status);
 };
 
-// 2. One order with customer details. Every item carries its own `allowedStatuses`.
+// Get order
 const getOrder = async (orderRef) => {
   const order = await findOrder(orderRef);
   const [items, user] = await Promise.all([
@@ -168,7 +155,6 @@ const getOrder = async (orderRef) => {
         allowedStatuses: itemAllowedStatuses(order, raw),
         returnRestockedQuantity: raw.returnRestockedQuantity || 0,
         returnDiscardedQuantity: raw.returnDiscardedQuantity || 0,
-        // true = damaged / defective return: stock is never added back for it
         returnIsDamage: isDamageReturnReason(raw.returnReason),
       };
     }),
@@ -178,7 +164,6 @@ const getOrder = async (orderRef) => {
 
 const conflict = (message) => createError(message, STATUS.CONFLICT, ERROR_CODES.INVALID_STATUS_TRANSITION);
 
-// Can this item go to `newStatus`? Throws a readable error when it cannot.
 const checkItemChange = (order, item, newStatus) => {
   const current = item.status;
 
@@ -188,8 +173,6 @@ const checkItemChange = (order, item, newStatus) => {
 
   if (newStatus === current) throw conflict(MESSAGES.ORDER.INVALID_STATUS_TRANSITION(current, newStatus));
 
-  // The one rule: the new status must be a step the table allows from the current status.
-  // (this blocks skipping ahead, going back, and cancelling once the item has shipped)
   const allowed = STATUS_TRANSITIONS[current] || [];
   if (!allowed.includes(newStatus)) {
     throw conflict(MESSAGES.ORDER.STATUS_STEP_NOT_ALLOWED(current, newStatus, allowed));
@@ -199,9 +182,6 @@ const checkItemChange = (order, item, newStatus) => {
   if (!isPayable(order)) throw conflict(MESSAGES.ORDER.PAYMENT_NOT_RECEIVED);
 };
 
-// Move ONE item forward (the step was already checked against STATUS_TRANSITIONS). Every stage it passes
-// gets a history line, so the customer's "Track item" timeline has no gaps, even when the admin goes
-// straight from shipped to delivered and skips the optional "out for delivery" step.
 const moveItemForward = async (item, newStatus) => {
   const from = STATUS_FLOW.indexOf(item.status);
   const to = STATUS_FLOW.indexOf(newStatus);
@@ -214,9 +194,8 @@ const moveItemForward = async (item, newStatus) => {
   }));
 
   const $set = { status: newStatus };
-  if (newStatus === ORDER_STATUS.DELIVERED) $set.deliveredQuantity = remainingQuantity(item); // cancelled units were never delivered
+  if (newStatus === ORDER_STATUS.DELIVERED) $set.deliveredQuantity = remainingQuantity(item);
 
-  // Only matches while the item is still where we saw it, so two admins cannot apply the same step twice
   const done = await OrderItem.findOneAndUpdate(
     { _id: item._id, status: item.status },
     { $set, $push: { statusHistory: { $each: history } } }
@@ -224,8 +203,6 @@ const moveItemForward = async (item, newStatus) => {
   if (!done) throw conflict(MESSAGES.ORDER.ITEM_STATUS_CHANGED_ELSEWHERE);
 };
 
-// Cancel ONE item (all units that are left) and put the shoes back on the shelf.
-// Prices, coupon share and the refund are worked out afterwards by refreshOrderAfterCancel.
 const cancelItemByAdmin = async (item) => {
   const left = remainingQuantity(item);
   const now = new Date();
@@ -242,13 +219,10 @@ const cancelItemByAdmin = async (item) => {
   await restoreStock(item.variantId, item.size, left);
 };
 
-// After items changed: recount the order (totals + refund for cancels) or just follow the items' status
 const finishChange = (order, cancelled) =>
   cancelled ? refreshOrderAfterCancel(order, 'Cancelled by admin') : syncOrderStatus(order._id);
 
-// 3. Change the status of ONE product of an order (the admin's main action).
-//    Only the steps in STATUS_TRANSITIONS are allowed: pending -> shipped -> (out_for_delivery) -> delivered,
-//    or cancelled while still pending. The order's own status then follows its items by itself.
+// Item status
 const updateItemStatus = async (orderRef, itemId, newStatus) => {
   if (!Object.values(ORDER_STATUS).includes(newStatus)) {
     throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
@@ -273,9 +247,7 @@ const updateItemStatus = async (orderRef, itemId, newStatus) => {
   return getOrder(order._id);
 };
 
-// Same thing for every open item at once (kept for the shorter Postman route PATCH /orders/:orderId).
-// Only items for which `newStatus` is an allowed next step are changed; every other item
-// (already past it, too early for it, delivered, cancelled or in a return) is left alone.
+// Order status
 const updateOrderStatus = async (orderRef, newStatus) => {
   if (!Object.values(ORDER_STATUS).includes(newStatus)) {
     throw createError(MESSAGES.ORDER.INVALID_STATUS, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ORDER_STATUS);
@@ -300,20 +272,13 @@ const updateOrderStatus = async (orderRef, newStatus) => {
       changed += 1;
     }
   } finally {
-    // even if one item failed, the items that did move must be counted / refunded
     if (changed > 0) await finishChange(order, cancelled);
   }
 
   return getOrder(order._id);
 };
 
-// 4. Approve or reject a return request for one item.
-//    Stock rules on approve (decided by the return reason the customer gave):
-//    - "Damaged product" / "Defective product": the units are NEVER added back to stock, whatever
-//      `restock` says. They cannot be sold again.
-//    - Any other reason (wrong size, wrong item, ...): nothing happens automatically. The admin has to
-//      read the reason and description and send `restock` (true = fit to sell again, false = not).
-//      Only then is the stock recalculated. Leaving `restock` out is an error, not a default.
+// Handle return
 const handleReturn = async (orderRef, itemId, action, reason, restock) => {
   if (!['approve', 'reject'].includes(action)) {
     throw createError(MESSAGES.ORDER.INVALID_RETURN_ACTION, STATUS.BAD_REQUEST);
@@ -322,7 +287,6 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
     throw createError(MESSAGES.ORDER.INVALID_ITEM_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_ITEM_ID);
   }
 
-  // A rejection must come with a reason, so the customer knows why
   const cleanReason = String(reason || '').trim().slice(0, 300);
   if (action === 'reject' && !cleanReason) {
     throw createError('Please give a reason for rejecting the return.', STATUS.BAD_REQUEST);
@@ -339,14 +303,12 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
     throw createError(MESSAGES.ORDER.NO_RETURN_REQUEST_FOR_ITEM, STATUS.CONFLICT, ERROR_CODES.RETURN_NOT_ALLOWED);
   }
 
-  // Units the customer asked for (older requests saved before the schema fix fall back to the whole line)
   const requestedQty = item.returnRequestedQuantity || item.quantity - (item.cancelledQuantity || 0);
 
-  // Should these units go back into stock? (only matters when approving)
   let addToStock = false;
   if (action === 'approve') {
     if (isDamageReturnReason(item.returnReason)) {
-      addToStock = false; // damaged / defective: never restocked, even if the request says true
+      addToStock = false;
     } else if (restock === undefined || restock === null || restock === '') {
       throw createError(
         'Check the return reason and description, then choose whether the units go back to stock.',
@@ -361,12 +323,9 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
     item.returnedQuantity = (item.returnedQuantity || 0) + requestedQty;
     item.returnRequestedQuantity = 0;
 
-    // keep a record of the admin's stock decision for these units
     if (addToStock) item.returnRestockedQuantity = (item.returnRestockedQuantity || 0) + requestedQty;
     else item.returnDiscardedQuantity = (item.returnDiscardedQuantity || 0) + requestedQty;
 
-    // Everything returned -> "returned". Only some units returned -> back to "delivered"
-    // so the customer can still return the rest later.
     const delivered = item.deliveredQuantity || item.quantity - (item.cancelledQuantity || 0);
     item.status = item.returnedQuantity >= delivered ? ITEM_STATUS.RETURNED : ITEM_STATUS.DELIVERED;
 
@@ -376,10 +335,8 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
       `Return approved for ${requestedQty} unit(s), ${addToStock ? 'added back to stock' : 'not added to stock'}`
     );
     await item.save();
-    if (addToStock) await restoreStock(item.variantId, item.size, requestedQty); // only after the admin's check
+    if (addToStock) await restoreStock(item.variantId, item.size, requestedQty);
 
-    // The admin approved the return: put what these units cost (after their share of the coupon,
-    // plus tax) into the customer's wallet. This also covers Cash on Delivery orders.
     if (item.quantity > 0) {
       const perUnit =
         (item.itemTotal - (item.couponShare || 0) - (item.referralShare || 0) + (item.taxAmount || 0)) / item.quantity;
@@ -389,7 +346,6 @@ const handleReturn = async (orderRef, itemId, action, reason, restock) => {
       });
     }
   } else {
-    // Rejected: keep the reason and put the item back to "delivered"
     item.returnRejectReason = cleanReason;
     item.returnRejectedAt = new Date();
     item.returnRequestedQuantity = 0;

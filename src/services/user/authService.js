@@ -1,4 +1,3 @@
-// src/services/authService.js
 const User = require('../../models/user');
 const OTP = require('../../models/otp');
 const bcrypt = require('bcryptjs');
@@ -19,7 +18,6 @@ const { VALIDATION_MESSAGES } = require('../../utils/validators');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// Internal Helper: OTP creation & dispatch
 const createAndSendOtp = async (user, type, emailSubject) => {
   
   await OTP.deleteMany({ userId: user._id, type });
@@ -44,9 +42,8 @@ const createAndSendOtp = async (user, type, emailSubject) => {
 };
 
 
-// referralCode is optional. It can be a referral code or the token from an invite link.
+// Signup
 const signup = async ({ username, email, password, referralCode, termsAccepted }) => {
-  // Check the code first, so a typo is reported before anything is created
   const referrer = referralCode ? await referralService.requireReferrer(referralCode) : null;
 
   const userExists = await User.findOne({ email });
@@ -70,7 +67,6 @@ const signup = async ({ username, email, password, referralCode, termsAccepted }
     referredBy: referrer ? referrer._id : null,
   });
 
-  // every customer gets a code + invite link of their own
   await referralService.ensureReferralIdentity(user);
 
   return {
@@ -80,7 +76,7 @@ const signup = async ({ username, email, password, referralCode, termsAccepted }
 };
 
 
-// referralCode (optional) only counts when this Google login creates a brand-new account
+// Google login
 const googleAuth = async (token, referralCode, termsAccepted = false) => {
   let ticket;
   try {
@@ -102,7 +98,6 @@ const googleAuth = async (token, referralCode, termsAccepted = false) => {
       if (!user.profileImage) user.profileImage = picture;
       await user.save();
     } else {
-      // A brand-new account may only be created from the signup page (terms ticked)
       if (!termsAccepted) {
         throw createError(VALIDATION_MESSAGES.TERMS_REQUIRED, STATUS.BAD_REQUEST);
       }
@@ -139,7 +134,7 @@ const googleAuth = async (token, referralCode, termsAccepted = false) => {
   };
 };
 
-// 3. Login
+// Login
 const login = async ({ email, password }) => {
   const user = await User.findOne({ email });
   if (!user || !user.isVerified) {
@@ -169,7 +164,7 @@ const login = async ({ email, password }) => {
   };
 };
 
-// 4. Send Signup OTP
+// Send OTP
 const sendOtp = async (email) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -177,7 +172,7 @@ const sendOtp = async (email) => {
   return await createAndSendOtp(user, "signup", "Your Signup OTP");
 };
 
-// 5. Verify Signup OTP
+// Verify OTP
 const verifyOtp = async ({ email, otp }) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -207,7 +202,7 @@ const verifyOtp = async ({ email, otp }) => {
   };
 };
 
-// 6. Forgot Password (Send Reset OTP)
+// Forgot password
 const forgotPassword = async (email) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -215,7 +210,7 @@ const forgotPassword = async (email) => {
   return await createAndSendOtp(user, "reset", "Your Password Reset OTP");
 };
 
-// 7. Verify Reset OTP -> Issues resetToken
+// Verify reset OTP
 const verifyResetOtp = async ({ email, otp }) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -233,7 +228,7 @@ const verifyResetOtp = async ({ email, otp }) => {
   return { resetToken };
 };
 
-// 8. Reset Password via resetToken
+// Reset password
 const resetPassword = async ({ resetToken, newPassword }) => {
   let payload;
   try {
@@ -252,7 +247,7 @@ const resetPassword = async ({ resetToken, newPassword }) => {
   return true;
 };
 
-// 9. Resend OTP
+// Resend OTP
 const resendOtp = async ({ email, type }) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -265,7 +260,7 @@ const resendOtp = async ({ email, type }) => {
   return await createAndSendOtp(user, type, subject);
 };
 
-// 10. Refresh Access Token (Rotation on 401)
+// Refresh token
 const refreshAccessToken = async (incomingRefreshToken) => {
   if (!incomingRefreshToken) {
     throw createError(MESSAGES.AUTH.NO_REFRESH_TOKEN_PROVIDED, STATUS.UNAUTHORIZED);

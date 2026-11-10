@@ -1,13 +1,11 @@
-// src/controllers/user/addressController.js
 const addressService = require('../../services/user/addressService');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const { normalizePhone, validateEmail } = require('../../utils/validators');
 
-// Helper to reliably grab user id regardless of JWT structure
 const getUserId = (req) => req.user?.id || req.user?._id;
 
-// GET /addresses - List Addresses
+// Get addresses
 const getAddresses = async (req, res) => {
   const userId = getUserId(req);
   console.log('User is ',userId)
@@ -16,7 +14,7 @@ const getAddresses = async (req, res) => {
   return res.status(STATUS.OK).json({ success: true, data: addresses });
 };
 
-// POST /addresses - Create New Address
+// Create address
 const createAddress = async (req, res) => {
   const userId = getUserId(req);
   const {
@@ -73,7 +71,6 @@ const createAddress = async (req, res) => {
     });
   }
 
-  // Email is optional on an address, but when given it gets the same check as signup
   const cleanEmail = email ? String(email).trim().toLowerCase() : '';
   if (cleanEmail) {
     const emailError = validateEmail(cleanEmail);
@@ -97,13 +94,12 @@ const createAddress = async (req, res) => {
   return res.status(STATUS.CREATED).json({ success: true, data: newAddress });
 };
 
-// PATCH /addresses/:id - Update Address
+// Update address
 const updateAddress = async (req, res) => {
   const userId = getUserId(req);
   const { id } = req.params;
   const updates = { ...req.body };
 
-  // PATCH used to skip validation completely; check the contact fields when they are sent
   if (updates.phoneNumber !== undefined) {
     const cleanPhone = normalizePhone(updates.phoneNumber);
     if (!cleanPhone) {
@@ -127,7 +123,7 @@ const updateAddress = async (req, res) => {
   return res.status(STATUS.OK).json({ success: true, data: updatedAddress });
 };
 
-// DELETE /addresses/:id - Delete Address
+// Delete address
 const deleteAddress = async (req, res) => {
   const userId = getUserId(req);
   const { id } = req.params;

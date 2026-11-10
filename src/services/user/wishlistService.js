@@ -1,4 +1,3 @@
-// src/services/user/wishlistService.js
 const Wishlist = require('../../models/wishlist');
 const Product = require('../../models/products');
 const Variant = require('../../models/variants');
@@ -12,7 +11,6 @@ const { getOfferMap, resolveDiscount } = require('./offerService');
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 50;
 
-// Internal Helper: check variantId and size, return the cleaned size
 const validateWishlistInput = (variantId, size) => {
   if (!variantId || !/^[0-9a-fA-F]{24}$/.test(variantId)) {
     throw createError(MESSAGES.VARIANT.INVALID_VARIANT_ID, STATUS.BAD_REQUEST);
@@ -25,29 +23,22 @@ const validateWishlistInput = (variantId, size) => {
   return String(size).trim();
 };
 
-// Internal Helper: a category / brand / product / variant is visible to shoppers
-// only if it is active and not deleted
 const isVisible = (doc) => {
   return Boolean(doc && doc.isActive && !doc.deletedAt);
 };
 
-// Internal Helper: price after discount (the percent comes from the offer engine)
 const getFinalPrice = (variant, discountPercent) => {
   const price = Number(variant.price) || 0;
   const discount = Math.min(Math.max(Number(discountPercent) || 0, 0), 100);
   return Math.round(price - (price * discount) / 100);
 };
 
-// Internal Helper: page and limit with safe defaults
 const getPaging = (paging) => {
   const page = Math.max(parseInt(paging?.page, 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(paging?.limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
   return { page, limit };
 };
 
-// Internal Helper: a variant + size can be wishlisted only if shoppers can currently see it.
-// Same visibility rules as the product pages, so blocked products stay hidden (404).
-// Stock is NOT checked: people can save an out-of-stock size and wait for it.
 const assertWishlistable = async (variantId, size) => {
   const variant = await Variant.findOne({ _id: variantId, isActive: true, deletedAt: null });
   if (!variant) {
@@ -71,13 +62,9 @@ const assertWishlistable = async (variantId, size) => {
   }
 };
 
-// Internal Helper: build the response for GET /api/wishlist (newest first, paginated).
-// Items that became unavailable after being saved are still returned,
-// flagged with isAvailable:false, so the user can see and remove them.
 const buildWishlistView = async (wishlist, paging) => {
   const { page, limit } = getPaging(paging);
 
-  // Newest first
   const allItems = wishlist ? [...wishlist.items].reverse() : [];
   const totalItems = allItems.length;
 
@@ -95,7 +82,6 @@ const buildWishlistView = async (wishlist, paging) => {
   const pageItems = allItems.slice((page - 1) * limit, page * limit);
   if (pageItems.length === 0) return view;
 
-  // No isActive filter here on purpose: we want to see (and flag) inactive ones too
   const variants = await Variant.find({ _id: { $in: pageItems.map((item) => item.variantId) } });
   const products = await Product.find({ _id: { $in: variants.map((v) => v.productId) } });
   const brands = await Brand.find({ _id: { $in: products.map((p) => p.brandId) } });
@@ -114,7 +100,6 @@ const buildWishlistView = async (wishlist, paging) => {
       ? categories.find((c) => String(c._id) === String(product.categoryId))
       : null;
 
-    // Stock of the saved size
     const sizeEntry = variant
       ? variant.sizes.find((s) => String(s.size) === item.size)
       : null;
@@ -131,7 +116,6 @@ const buildWishlistView = async (wishlist, paging) => {
     if (!isAvailable) issue = 'UNAVAILABLE';
     else if (stock < 1) issue = 'OUT_OF_STOCK';
 
-    // First image (can be a plain string or an object with url)
     let image = null;
     if (variant && variant.images && variant.images.length > 0) {
       const first = variant.images[0];
@@ -166,15 +150,13 @@ const buildWishlistView = async (wishlist, paging) => {
   return view;
 };
 
-// 1. Get Wishlist
+// Get wishlist
 const getWishlist = async (userId, paging) => {
   const wishlist = await Wishlist.findOne({ userId });
   return await buildWishlistView(wishlist, paging);
 };
 
-// 2. Get Wishlist Ids
-// Lightweight list of saved variant + size pairs (with productId), so product
-// cards / the product page can show a filled heart without loading everything.
+// Wishlist ids
 const getWishlistIds = async (userId) => {
   const wishlist = await Wishlist.findOne({ userId });
   if (!wishlist || wishlist.items.length === 0) return { items: [] };
@@ -195,9 +177,7 @@ const getWishlistIds = async (userId) => {
   return { items };
 };
 
-// 3. Add To Wishlist
-// Adding is idempotent: saving the same colour + size twice is not an error.
-// Both writes are atomic, so double clicks / parallel requests cannot create duplicates.
+// Add to wishlist
 const addToWishlist = async (userId, { variantId, size }) => {
   const sizeValue = validateWishlistInput(variantId, size);
   await assertWishlistable(variantId, sizeValue);
@@ -212,15 +192,12 @@ const addToWishlist = async (userId, { variantId, size }) => {
     }
    }
 
-  // Make sure the user's wishlist document exists
   try {
     await Wishlist.updateOne({ userId }, { $setOnInsert: { userId } }, { upsert: true });
   } catch (err) {
-    // Two requests created it at the same moment - the document exists, which is all we need
     if (err.code !== 11000) throw err;
   }
 
-  // Push only if this variant + size is not already in the list
   const updated = await Wishlist.findOneAndUpdate(
     { userId, items: { $not: { $elemMatch: { variantId, size: sizeValue } } } },
     { $push: { items: { variantId, size: sizeValue, addedAt: new Date() } } },
@@ -231,7 +208,6 @@ const addToWishlist = async (userId, { variantId, size }) => {
     return { added: true, variantId, size: sizeValue, inWishlist: true, totalItems: updated.items.length };
   }
 
-  // Already in the wishlist: nothing was added
   const current = await Wishlist.findOne({ userId });
   return {
     added: false,
@@ -242,7 +218,7 @@ const addToWishlist = async (userId, { variantId, size }) => {
   };
 };
 
-// 4. Remove From Wishlist
+// Remove from wishlist
 const removeFromWishlist = async (userId, variantId, size) => {
   const sizeValue = validateWishlistInput(variantId, size);
 
@@ -259,7 +235,7 @@ const removeFromWishlist = async (userId, variantId, size) => {
   return { variantId, size: sizeValue, inWishlist: false, totalItems: updated.items.length };
 };
 
-// 5. Clear Wishlist
+// Clear wishlist
 const clearWishlist = async (userId) => {
   await Wishlist.updateOne({ userId }, { $set: { items: [] } });
   return { totalItems: 0 };

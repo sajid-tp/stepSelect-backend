@@ -1,4 +1,3 @@
-// models/User.js
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
@@ -29,10 +28,6 @@ const userSchema = new mongoose.Schema({
   referralId: {
     type: String,
   },
-  // Referral programme -------------------------------------------------
-  // referralCode  : short code the customer shares ("SAJID-7K2Q"), typed in the signup form
-  // referralToken : opaque token used in the invite link ("/invite/<token>")
-  // referredBy    : the customer whose code / link this person signed up with
   referralCode: {
     type: String,
     uppercase: true,

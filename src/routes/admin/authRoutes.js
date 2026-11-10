@@ -13,7 +13,6 @@ router.post('/login', adminLogin);
 
 router.post('/logout', adminLogout);
 
-// Session check used by the client's AdminProtectedRoute
 router.get('/me', protect('admin'), adminMe);
 
 

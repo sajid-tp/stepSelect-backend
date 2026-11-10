@@ -1,15 +1,14 @@
-// src/services/addressService.js
 const Address = require('../../models/address');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
-// 1. Get all addresses for a user
+// Get addresses
 const getAddresses = async (userId) => {
   return await Address.find({ user: userId }).sort({ createdAt: -1 });
 };
 
-// 2. Create Address
+// Create address
 const createAddress = async (userId, addressData) => {
   const {
     name,
@@ -23,7 +22,6 @@ const createAddress = async (userId, addressData) => {
     isDefault,
   } = addressData;
 
-  // Check if user already has any address; if none, make this first one default
   const existingCount = await Address.countDocuments({ user: userId });
   const shouldBeDefault = existingCount === 0 ? true : Boolean(isDefault);
 
@@ -47,14 +45,13 @@ const createAddress = async (userId, addressData) => {
   return newAddress;
 };
 
-// 3. Update Address
+// Update address
 const updateAddress = async (userId, addressId, updateData) => {
   const address = await Address.findOne({ _id: addressId, user: userId });
   if (!address) {
     throw createError(MESSAGES.ADDRESS.ADDRESS_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
-  // If making this one default, unset all others
   if (updateData.isDefault) {
     await Address.updateMany(
       { user: userId, _id: { $ne: addressId } },
@@ -62,7 +59,6 @@ const updateAddress = async (userId, addressId, updateData) => {
     );
   }
 
-  // Strip forbidden fields from update object
   const { user, _id, ...safeUpdates } = updateData;
 
   const updatedAddress = await Address.findByIdAndUpdate(
@@ -74,14 +70,13 @@ const updateAddress = async (userId, addressId, updateData) => {
   return updatedAddress;
 };
 
-// 4. Delete Address
+// Delete address
 const deleteAddress = async (userId, addressId) => {
   const address = await Address.findOneAndDelete({ _id: addressId, user: userId });
   if (!address) {
     throw createError(MESSAGES.ADDRESS.ADDRESS_NOT_FOUND, STATUS.NOT_FOUND);
   }
 
-  // If deleted address was default, set the latest remaining address to default
   if (address.isDefault) {
     const nextDefault = await Address.findOne({ user: userId }).sort({ createdAt: -1 });
     if (nextDefault) {

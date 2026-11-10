@@ -1,15 +1,3 @@
-// src/services/payment/refundService.js
-// Money back to the customer. Every refund goes to the customer's WALLET (never back to the card).
-//
-//   cancellation  -> refunded straight away (nobody has to approve it)
-//   return        -> refunded when the admin approves the return
-//
-// What counts as "paid":
-//   Razorpay / Wallet orders  -> the amount that was really paid (payment.paidInr)
-//   Cash on Delivery orders   -> cash is only taken at the door, so only a RETURN of something that was
-//                                already delivered gives wallet money back (even while other items of the
-//                                same order are still on their way). A COD item that is cancelled before
-//                                delivery has nothing to refund.
 const Order = require('../../models/order');
 const { PAYMENT_METHODS, PAYMENT_STATUS } = require('../../constants/orderConstants');
 const { WALLET_SOURCE } = require('../../constants/walletConstants');
@@ -17,21 +5,14 @@ const { creditWallet } = require('../user/walletService');
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-// amountInr = null  ->  refund everything that is still left
-// options.reason    -> 'cancel' (default) or 'return'
-// options.note      -> shown in the wallet history, e.g. the product name
-// Never throws: a wallet problem must not undo a cancellation / return that already happened.
-// The failure is stored on the order (payment.refundError) so the admin can see it.
 const refundOrder = async (order, amountInr = null, { reason = 'cancel', note = '' } = {}) => {
   try {
     if (!order) return null;
 
-    // Read fresh numbers: the order object in the caller can be a little old
     const fresh = await Order.findById(order._id);
     if (!fresh) return null;
 
     const isCod = fresh.paymentMethod === PAYMENT_METHODS.COD;
-    // Online orders: only when the payment arrived. COD: only for a return (nothing was collected for a cancel)
     if (isCod ? reason !== 'return' : fresh.paymentStatus !== PAYMENT_STATUS.PAID) return null;
     const paid = fresh.payment?.paidInr || (isCod ? fresh.totalAmount : 0);
     const refundedBefore = round2(fresh.payment?.refundedInr || 0);
@@ -44,7 +25,6 @@ const refundOrder = async (order, amountInr = null, { reason = 'cancel', note = 
       ? `Refund for returned item${note ? ` (${note})` : ''}, order ${fresh.orderNumber}`
       : `Refund for cancelled order ${fresh.orderNumber}${note ? ` (${note})` : ''}`;
 
-    // The key is built from what was already refunded, so the same refund can never be added twice
     const result = await creditWallet(fresh.userId, amount, {
       source: isReturn ? WALLET_SOURCE.ORDER_RETURN_REFUND : WALLET_SOURCE.ORDER_CANCEL_REFUND,
       description,

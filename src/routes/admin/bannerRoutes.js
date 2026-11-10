@@ -13,8 +13,6 @@ const {
 
 const router = express.Router();
 
-// Reads one picture from the form field "image". A too-big file (multer's own error)
-// becomes a clear 400 message instead of a generic server error.
 const bannerImage = (req, res, next) =>
   upload.single('image')(req, res, (err) => {
     if (!err) return next();

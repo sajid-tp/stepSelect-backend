@@ -14,6 +14,7 @@ const getUserId = (req) => {
 };
 
 
+// Checkout summary
 const getCheckoutSummary = async (req, res) => {
   const data = await checkoutService.getCheckoutSummary(getUserId(req));
   return res.status(STATUS.OK).json({ data });
@@ -21,6 +22,7 @@ const getCheckoutSummary = async (req, res) => {
 
  
 
+// Place order
 const placeOrder = async (req, res) => {
   const { addressId, paymentMethod } = req.body || {};
   const selectedAddressId = addressId;

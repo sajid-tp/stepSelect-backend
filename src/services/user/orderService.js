@@ -1,4 +1,3 @@
-
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
 
@@ -51,11 +50,6 @@ const getRemainingQuantity = (item) => {
 
 
 
-// Cancelling the WHOLE order is only possible while every item is still being processed (nothing shipped yet).
-// As soon as ANY item has left processing (shipped, out for delivery, delivered, or in the return flow)
-// "Cancel order" is closed. A single item that is still processing can still be cancelled on its own.
-// (The order status alone is not enough: it follows the slowest item, so an order with one shipped
-// pair and one pair still packing still says "pending".)
 const hasLeftProcessing = (items) =>
   items.some(
     (item) =>
@@ -260,9 +254,7 @@ const toItemView = (item) => {
 
 
 const toOrderView = (order, items) => {
-  // Nothing of an unpaid order can be cancelled or returned item by item: its payment is retried or cancelled instead
   const unpaidOnline = isUnpaidOnline(order);
-  // Once any item has shipped, the whole order can no longer be cancelled (items still processing keep their own Cancel item)
   const shipped = hasLeftProcessing(items);
   const itemViews = items.map((item) => {
     const view = toItemView(item);
@@ -277,7 +269,6 @@ const toOrderView = (order, items) => {
     orderNumber: order.orderNumber,
 
     status: order.status,
-    // payment_failed | payment_pending | the normal order status (what the customer sees as the badge)
     displayStatus: getDisplayStatus(order),
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
@@ -289,7 +280,6 @@ const toOrderView = (order, items) => {
       failureReason: order.payment?.failureReason || null,
       refundError: order.payment?.refundError || null,
     },
-    // Retry state of an unpaid online order (attempts, 30 minute hold, cool-down before the final attempt)
     paymentFlow: isUnpaidOnline(order) ? describeRetryState(order) : null,
 
     createdAt: order.createdAt,
@@ -312,26 +302,16 @@ const toOrderView = (order, items) => {
     items: itemViews,
     itemCount: itemViews.length,
 
-    // An order that is not paid yet is not cancelled like a normal order: its payment is retried or cancelled instead
     canCancel:
       order.status === ORDER_STATUS.PENDING && canCancel && !shipped && !isUnpaidOnline(order),
 
-    // Each item is delivered on its own, so a delivered pair can be returned
-    // even while another pair of the same order is still on its way.
     canReturn: canReturn && !isUnpaidOnline(order),
 
-    // Available from the moment the order is placed, also after it was cancelled.
-    // Only an online order that is not paid yet (or whose payment failed) has no invoice.
     canDownloadInvoice: !isUnpaidOnline(order),
   };
 };
 
 
-// The order status follows its items (see deriveOrderStatus in utils/orderHelpers.js).
-// Call this after ANY item moved: the admin updated an item, or an item was cancelled.
-// When the order becomes delivered it also does what must happen at that moment:
-// the delivered date, Cash on Delivery marked as paid, and the referral reward.
-// (An order whose items are ALL cancelled is closed by refreshOrderAfterCancel, not here.)
 const syncOrderStatus = async (orderRef) => {
   const order = await Order.findById(orderRef._id || orderRef);
   if (!order || order.status === ORDER_STATUS.CANCELLED) return order;
@@ -339,7 +319,6 @@ const syncOrderStatus = async (orderRef) => {
   const items = await OrderItem.find({ orderId: order._id });
   const next = deriveOrderStatus(items);
 
-  // Nothing changed, or all items are cancelled (handled by the cancel flow). Never move backwards.
   if (next === order.status || next === ORDER_STATUS.CANCELLED) return order;
   if (STATUS_FLOW.indexOf(next) < STATUS_FLOW.indexOf(order.status)) return order;
 
@@ -348,7 +327,6 @@ const syncOrderStatus = async (orderRef) => {
   if (next === ORDER_STATUS.DELIVERED) {
     set.deliveredAt = new Date();
 
-    // Cash on Delivery: the cash is collected once everything has been handed over
     if (order.paymentMethod === PAYMENT_METHODS.COD && order.paymentStatus === PAYMENT_STATUS.PENDING) {
       const refunded = round2(order.payment?.refundedInr || 0);
       set.paymentStatus =
@@ -356,7 +334,6 @@ const syncOrderStatus = async (orderRef) => {
     }
   }
 
-  // Only one request can win this change, so the side effects below happen once
   const claimed = await Order.findOneAndUpdate(
     { _id: order._id, status: order.status },
     { $set: set },
@@ -364,8 +341,6 @@ const syncOrderStatus = async (orderRef) => {
   );
   if (!claimed) return Order.findById(order._id);
 
-  // A referred friend's first order has arrived: pay the person who referred them.
-  // (A failure here must never undo the delivery, so it is only logged.)
   if (next === ORDER_STATUS.DELIVERED) {
     try {
       await referralService.rewardReferrerForOrder(claimed);
@@ -400,7 +375,6 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
     await releaseCoupon(order.couponId);
 
-    // Paid (Razorpay / wallet): send everything that was not refunded yet to the wallet (COD / unpaid: does nothing)
     await refundOrder(order, null, { reason: 'cancel' });
 
     return;
@@ -434,7 +408,6 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
     couponDiscount += itemCouponDiscount;
 
-    // the referral offer is shared over the items the same way a coupon is
     referralDiscount += round2((item.referralShare || 0) * remainingRatio);
 
     lines.push({
@@ -461,10 +434,8 @@ const refreshOrderAfterCancel = async (order, reason) => {
 
   await order.save();
 
-  // Paid (Razorpay / wallet): refund the part of the total that was just cancelled to the wallet
   await refundOrder(order, round2(totalBefore - totals.totalAmount), { reason: 'cancel' });
 
-  // The cancelled item may have been the one holding the order back (e.g. the only pair still packing)
   await syncOrderStatus(order._id);
 };
 
@@ -604,6 +575,7 @@ const requestItemReturn = async (item, quantity, reason, description) => {
   return Boolean(updatedItem);
 };
 
+// Get orders
 const getMyOrders = async (
   userId,
   { search, status, page, limit } = {}
@@ -618,9 +590,6 @@ const getMyOrders = async (
 
   const filter = {
     userId,
-    // Online orders that were never paid are shown too (as "Payment pending" while the customer can still
-    // pay, and as "Payment failed" once the 4 attempts or the 30 minutes are used up). Only an online order
-    // that was dropped before any payment was even tried stays hidden.
     $nor: [
       {
         ...unpaidOnlineFilter(),
@@ -698,6 +667,7 @@ const getMyOrders = async (
   };
 };
 
+// Get order
 const getMyOrder = async (userId, orderRef) => {
 
   const order = await findUserOrder(userId, orderRef);
@@ -709,6 +679,7 @@ const getMyOrder = async (userId, orderRef) => {
   return toOrderView(order, items);
 };
 
+// Cancel order
 const cancelOrder = async (userId, orderRef, { reason } = {}) => {
   const cleanReason = getCancelReason(reason);
 
@@ -741,8 +712,6 @@ const cancelOrder = async (userId, orderRef, { reason } = {}) => {
 
   const allItems = await OrderItem.find({ orderId: order._id });
 
-  // The order status follows the slowest item, so also look at every item:
-  // if any of them has already shipped, the order can no longer be cancelled.
   if (hasLeftProcessing(allItems)) {
     throw createError(
       MESSAGES.ORDER.CANNOT_CANCEL_ORDER_ALREADY_SHIPPED,
@@ -774,6 +743,7 @@ const cancelOrder = async (userId, orderRef, { reason } = {}) => {
   return getMyOrder(userId, order._id);
 };
 
+// Cancel item
 const cancelOrderItem = async (
   userId,
   orderRef,
@@ -863,6 +833,7 @@ const cancelOrderItem = async (
   return getMyOrder(userId, order._id);
 };
 
+// Return order
 const returnOrder = async (
   userId,
   orderRef,
@@ -899,7 +870,6 @@ const returnOrder = async (
 
   const items = await OrderItem.find(filter);
 
-  // Returns work per item: at least one item must already be delivered
   if (items.length === 0) {
     throw createError(
       MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
@@ -941,6 +911,7 @@ const returnOrder = async (
 };
 
 
+// Return item
 const returnOrderItem = async (
   userId,
   orderRef,
@@ -976,7 +947,6 @@ const returnOrderItem = async (
     );
   }
 
-  // The item itself must be delivered (the rest of the order may still be on its way)
   if (STATUS_FLOW.includes(item.status) && item.status !== ITEM_STATUS.DELIVERED) {
     throw createError(
       MESSAGES.ORDER.RETURN_ONLY_AFTER_DELIVERY,
@@ -1022,6 +992,7 @@ const returnOrderItem = async (
 };
 
 
+// Invoice data
 const getInvoiceData = async (userId, orderRef) => {
 
   const order = await findUserOrder(userId, orderRef);
@@ -1029,8 +1000,6 @@ const getInvoiceData = async (userId, orderRef) => {
 
   const isCancelledOrder = order.status === ORDER_STATUS.CANCELLED;
 
-  // A cancelled order still gets an invoice: it lists every item that was ordered, marked Cancelled.
-  // Otherwise the items cancelled one by one are left out.
   const items = await OrderItem.find(
     isCancelledOrder
       ? { orderId: order._id }

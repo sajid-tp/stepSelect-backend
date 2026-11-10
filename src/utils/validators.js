@@ -1,7 +1,3 @@
-
-
-// "mobile" metadata = Indian mobile numbers only (landlines are rejected), which is
-// what a delivery contact number should be.
 const { parsePhoneNumberFromString } = require('libphonenumber-js/mobile');
 
 const PHONE_COUNTRY = 'IN';
@@ -14,10 +10,8 @@ const LIMITS = Object.freeze({
 });
 
 const EMAIL_REGEX =
-  // The HTML Standard's "valid email address" pattern (what <input type="email"> uses)
   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 const OTP_REGEX = /^\d{6}$/;
-// at least one uppercase, one lowercase, one digit and one special character
 const PASSWORD_COMPLEXITY_REGEX = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9])/;
 
 const VALIDATION_MESSAGES = Object.freeze({
@@ -51,10 +45,6 @@ const validateUsername = (value, label = 'Username') => {
 const validateEmail = (value) => {
   const v = normalizeEmail(value);
   if (!v) return VALIDATION_MESSAGES.EMAIL_REQUIRED;
-  // Industry standard: HTML Standard pattern + RFC 5321 length limits
-  // (254 characters in total, at most 64 before the @)
-  // The domain part must also contain a dot ("user@localhost" is valid per the HTML
-  // pattern, but is never a real customer email)
   if (
     v.length > 254 ||
     v.indexOf('@') > 64 ||
@@ -78,9 +68,6 @@ const validatePassword = (value) => {
   return null;
 };
 
-// Returns the 10-digit national number (e.g. "9876543210") when `value` is a valid
-// Indian mobile number, otherwise ''. Accepts "98765 43210", "09876543210" and
-// "+91 98765 43210" and normalises them all to the same 10 digits.
 const normalizePhone = (value) => {
   const v = value === undefined || value === null ? '' : String(value).trim();
   if (!v) return '';
@@ -91,14 +78,12 @@ const normalizePhone = (value) => {
   return '';
 };
 
-// Phone is optional here (profile): empty is valid, anything else must be a valid number
 const validatePhone = (value) => {
   const v = value === undefined || value === null ? '' : String(value).trim();
   if (!v) return null;
   return normalizePhone(v) ? null : VALIDATION_MESSAGES.PHONE_INVALID;
 };
 
-// Phone is required here (addresses)
 const validateRequiredPhone = (value) => {
   const v = value === undefined || value === null ? '' : String(value).trim();
   if (!v) return VALIDATION_MESSAGES.PHONE_REQUIRED;

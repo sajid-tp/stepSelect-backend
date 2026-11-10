@@ -1,15 +1,3 @@
-// src/services/payment/paymentService.js
-// Online payment flow (Razorpay test mode / built-in demo mode, and the customer wallet).
-// The rules (see paymentRules.js):
-//
-//   1. initiate  -> creates the order (stock is held, cart is kept) + the gateway payment = attempt 1
-//   2. The order holds its stock for 30 minutes from the moment it was created. Retries never extend it.
-//   3. The customer gets 4 attempts: 1, 2 and 3 straight after each other, and a FINAL 4th attempt that
-//      only opens after a 2 minute cool-down (counted from the failure of attempt 3).
-//   4. verify    -> checks the payment is real, marks the order PAID, empties the cart
-//      retry     -> same order, same Razorpay order id (every attempt is one more payment id under it)
-//   5. 4th attempt failed, or the 30 minutes are over -> the order is closed as "Payment failed":
-//      it stays in Order History, the stock and the coupon are given back (unpaidOrders.js).
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
 const Cart = require('../../models/cart');
@@ -58,7 +46,6 @@ const isUnpaid = isUnpaidOnline;
 const clock = (total) =>
   `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 
-// What the payment screens (failure modal, Order Details) need to know about an order
 const toStatusView = (order) => ({
   orderId: String(order._id),
   orderNumber: order.orderNumber,
@@ -76,7 +63,6 @@ const toStatusView = (order) => ({
   ...describeRetryState(order),
 });
 
-// Give the stock back right now when the order is out of time or out of attempts but the worker has not run yet
 const releaseIfClosed = async (order) => {
   if (order.status !== ORDER_STATUS.PENDING || !isUnpaid(order)) return order;
 
@@ -88,16 +74,8 @@ const releaseIfClosed = async (order) => {
   return Order.findById(order._id);
 };
 
-// Nothing is left to settle: close a stale attempt, then release what ran out
 const refreshOrder = async (order) => releaseIfClosed(await settleStaleAttempt(order));
 
-// ---------------------------------------------------------------
-// Gateway payment for an order that already exists
-// ---------------------------------------------------------------
-// Opens one more payment attempt on the order. reuse = true (a retry): keep the Razorpay order id this
-// order already has, as long as it is still the same gateway and the same amount. Otherwise a new
-// Razorpay order is created. Claiming the attempt is one atomic update, so a double click can never
-// open two attempts or go past the limit.
 const startGatewayPayment = async (order, gateway, { reuse = false } = {}) => {
   if (!(order.totalAmount >= 1)) {
     throw createError('This order total is too small for online payment.', STATUS.BAD_REQUEST);
@@ -141,8 +119,6 @@ const startGatewayPayment = async (order, gateway, { reuse = false } = {}) => {
   };
 };
 
-// A customer with an unfinished payment (a failed attempt, tries left, still inside the 30 minutes) must
-// continue THAT order: starting a brand new checkout would give them a fresh set of 4 attempts every time.
 const assertNoUnfinishedPayment = async (userId) => {
   const candidates = await Order.find({
     userId,
@@ -165,15 +141,11 @@ const assertNoUnfinishedPayment = async (userId) => {
   }
 };
 
-// ---------------------------------------------------------------
-// 1. Start paying for the cart
-// ---------------------------------------------------------------
+// Start payment
 const initiate = async (userId, { addressId, gateway: gatewayName } = {}) => {
   const gateway = requireGateway(gatewayName);
   await assertNoUnfinishedPayment(userId);
 
-  // placeOrder checks address / cart / stock / coupon, takes the stock and creates the order,
-  // but (for online methods) leaves the cart alone until the money has arrived.
   const placed = await checkoutService.placeOrder(
     userId,
     { addressId, paymentMethod: gateway.name },
@@ -183,17 +155,13 @@ const initiate = async (userId, { addressId, gateway: gatewayName } = {}) => {
   const order = await Order.findById(placed.orderId);
 
   try {
-    return await startGatewayPayment(order, gateway); // attempt 1
+    return await startGatewayPayment(order, gateway);
   } catch (err) {
-    // The gateway did not start: do not keep the shoes held for nothing
     await releaseUnpaidOrder(order, RELEASE_REASON.ABANDONED);
     throw err;
   }
 };
 
-// ---------------------------------------------------------------
-// 2. Paid: mark the order PAID and clean up
-// ---------------------------------------------------------------
 const finalizePaidOrder = async (order) => {
   const items = await OrderItem.find({ orderId: order._id });
 
@@ -210,7 +178,6 @@ const finalizePaidOrder = async (order) => {
       );
     }
   } catch (err) {
-    // The money is in and the order is paid: a cleanup problem must not fail the payment
     console.error('Cart/wishlist cleanup failed after payment', order.orderNumber, err.message);
   }
 };
@@ -238,16 +205,13 @@ const markPaid = async (order, paymentId) => {
 
   const current = await Order.findById(order._id);
 
-  // The same payment reported again (page refresh, webhook after the browser): nothing to do
   if (current.payment?.paymentId === paymentId) return current;
 
-  // Already paid with ANOTHER payment (two attempts both went through): the extra money goes to the wallet
   if (current.paymentStatus === PAYMENT_STATUS.PAID || current.paymentStatus === PAYMENT_STATUS.REFUNDED) {
     await refundDuplicatePayment(current, paymentId);
     return current;
   }
 
-  // The money arrived after the order had already been closed ("Payment failed" / expired): give it back
   await Order.updateOne(
     { _id: current._id },
     { $set: { paymentStatus: PAYMENT_STATUS.PAID, 'payment.paymentId': paymentId, 'payment.paidInr': current.totalAmount, 'payment.paidAt': new Date() } }
@@ -259,14 +223,13 @@ const markPaid = async (order, paymentId) => {
   );
 };
 
-// A second successful payment for an order that is already paid: credit it to the wallet (once per payment id)
 const refundDuplicatePayment = async (order, paymentId) => {
   try {
     const marked = await Order.updateOne(
       { _id: order._id, 'payment.duplicatePaymentIds': { $ne: paymentId } },
       { $addToSet: { 'payment.duplicatePaymentIds': paymentId } }
     );
-    if (!marked.modifiedCount) return; // already handled
+    if (!marked.modifiedCount) return;
 
     await walletService.creditWallet(order.userId, order.totalAmount, {
       source: WALLET_SOURCE.ORDER_CANCEL_REFUND,
@@ -280,7 +243,7 @@ const refundDuplicatePayment = async (order, paymentId) => {
   }
 };
 
-// Razorpay popup returned a payment: check its signature, then mark paid
+// Verify payment
 const verifyRazorpay = async (userId, body = {}) => {
   const { orderNumber, razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
   const order = await findMyOrder(userId, orderNumber);
@@ -304,12 +267,7 @@ const verifyRazorpay = async (userId, body = {}) => {
   return toStatusView(await markPaid(order, razorpay_payment_id));
 };
 
-// ---------------------------------------------------------------
-// Pay the whole order from the wallet (no popup, the result is known at once)
-// ---------------------------------------------------------------
-//   1. create the order (stock is held, cart is kept), exactly like an online payment
-//   2. take the money from the wallet in one atomic step (fails when the balance is too low)
-//   3. mark the order PAID and empty the cart
+// Wallet payment
 const payWithWallet = async (userId, { addressId } = {}) => {
   const placed = await checkoutService.placeOrder(
     userId,
@@ -328,7 +286,6 @@ const payWithWallet = async (userId, { addressId } = {}) => {
       idempotencyKey: `order-payment:${order._id}`,
     });
   } catch (err) {
-    // Not enough money (or any other problem): give the held shoes and coupon back
     await releaseUnpaidOrder(order, RELEASE_REASON.ABANDONED);
     throw err;
   }
@@ -350,7 +307,6 @@ const payWithWallet = async (userId, { addressId } = {}) => {
     const paid = await markPaid(await Order.findById(order._id), `wallet_${debit.transaction.id}`);
     return toStatusView(paid);
   } catch (err) {
-    // The order could not be marked paid: give the money back instead of keeping it
     await walletService
       .creditWallet(userId, order.totalAmount, {
         source: WALLET_SOURCE.ORDER_CANCEL_REFUND,
@@ -364,16 +320,14 @@ const payWithWallet = async (userId, { addressId } = {}) => {
   }
 };
 
-// The popup reported a failure, or the customer closed it. One call = the open attempt failed
-// (the browser and the webhook may both report the same failure: it is counted once).
+// Payment failure
 const reportFailure = async (userId, orderNumber, reason, paymentId) => {
   const order = await findMyOrder(userId, orderNumber);
   await recordFailure(order._id, reason || 'Payment was not completed', paymentId);
   return toStatusView(await refreshOrder(await Order.findById(order._id)));
 };
 
-// Try again on the SAME order (the shoes are still held). Rules: inside the 30 minutes, 4 attempts in
-// total, and the final attempt only after the cool-down.
+// Retry payment
 const retry = async (userId, orderNumber, { gateway: gatewayName } = {}) => {
   let order = await refreshOrder(await findMyOrder(userId, orderNumber));
 
@@ -406,7 +360,6 @@ const retry = async (userId, orderNumber, { gateway: gatewayName } = {}) => {
 
   const gateway = requireGateway(gatewayName || order.payment?.gateway || order.paymentMethod);
 
-  // Did the customer actually pay (slow UPI, closed tab)? Then there is nothing to retry.
   try {
     const paidId =
       typeof gateway.findCapturedPaymentId === 'function' && order.payment?.gatewayOrderId
@@ -424,19 +377,20 @@ const retry = async (userId, orderNumber, { gateway: gatewayName } = {}) => {
   return startGatewayPayment(order, gateway, { reuse: true });
 };
 
-// "Cancel payment": give the stock back and let the customer start over from the cart
+// Abandon payment
 const abandon = async (userId, orderNumber) => {
   const order = await findMyOrder(userId, orderNumber);
   const released = await releaseUnpaidOrder(order, RELEASE_REASON.ABANDONED);
   return { released };
 };
 
+// Payment status
 const getStatus = async (userId, orderNumber) => {
   const order = await refreshOrder(await findMyOrder(userId, orderNumber));
   return toStatusView(order);
 };
 
-// Razorpay webhook: covers customers who pay and then close the browser. Safe to receive twice.
+// Razorpay webhook
 const handleRazorpayWebhook = async (rawBody, signature, event) => {
   const gateway = getGateway('RAZORPAY');
   if (!gateway.verifyWebhookSignature(rawBody, signature)) {
@@ -447,13 +401,11 @@ const handleRazorpayWebhook = async (rawBody, signature, event) => {
   if (!payment?.order_id) return { handled: false };
 
   const order = await Order.findOne({ 'payment.gatewayOrderId': payment.order_id });
-  // Not a shop order: it may be a wallet top-up
   if (!order) return walletService.handleTopUpWebhook(event.event, payment);
 
   if (event.event === 'payment.captured' || event.event === 'order.paid') {
     await markPaid(order, payment.id).catch((err) => console.error('Webhook markPaid:', err.message));
   } else if (event.event === 'payment.failed') {
-    // A failure of an EARLIER attempt that arrives late must not close the attempt running now
     const startedAt = order.payment?.lastAttemptAt ? new Date(order.payment.lastAttemptAt).getTime() : 0;
     const createdAt = payment.created_at ? Number(payment.created_at) * 1000 : Date.now();
     if (createdAt >= startedAt - 5000) {

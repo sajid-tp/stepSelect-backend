@@ -1,4 +1,3 @@
-// src/controllers/admin/authController.js
 const adminAuthService = require('../../services/admin/adminAuthServices');
 
 const {
@@ -9,6 +8,7 @@ const {
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
+// Admin login
 const adminLogin = async (req, res) => {
   const { email, password } = req.body;
 
@@ -27,6 +27,7 @@ const adminLogin = async (req, res) => {
   });
 };
 
+// Admin logout
 const adminLogout = (req, res) => {
   clearAdminTokenCookie(res);
 
@@ -35,8 +36,7 @@ const adminLogout = (req, res) => {
   });
 };
 
-// Lets the client check on page load / refresh whether the admin cookie is still valid.
-// The route is protected by protect('admin'), so reaching this point means the session is good.
+// Admin profile
 const adminMe = (req, res) => {
   return res.status(STATUS.OK).json({ isAdmin: true });
 };

@@ -4,60 +4,57 @@ const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 
-/*
-  POST /api/payments/initiate                  { addressId, gateway }   -> data { orderNumber, gateway, ...gateway data }
-  POST /api/payments/wallet/pay                { addressId }            -> data = payment status (order is paid at once)
-  POST /api/payments/razorpay/verify           { orderNumber, razorpay_order_id, razorpay_payment_id, razorpay_signature }
-  POST /api/payments/:orderNumber/failed       { reason, paymentId? }   (the open attempt failed; 4 attempts per order, see services/payment/paymentRules.js)
-  POST /api/payments/:orderNumber/retry        { gateway? }             (same order; the 4th and final attempt opens only after the 2 minute cool-down)
-  POST /api/payments/:orderNumber/abandon
-  GET  /api/payments/:orderNumber/status
-  POST /api/payments/webhook/razorpay          (called by Razorpay, no login)
-*/
-
 const getUserId = (req) => {
   const id = req.user?.id;
   if (!id) throw createError(MESSAGES.AUTH.AUTHENTICATION_REQUIRED, STATUS.UNAUTHORIZED, ERROR_CODES.UNAUTHORIZED);
   return id;
 };
 
+// Start payment
 const initiate = async (req, res) => {
   const { addressId, gateway } = req.body || {};
   const data = await paymentService.initiate(getUserId(req), { addressId, gateway });
   return res.status(STATUS.CREATED).json({ message: 'Payment started.', data });
 };
 
+// Wallet payment
 const payWithWallet = async (req, res) => {
   const data = await paymentService.payWithWallet(getUserId(req), { addressId: (req.body || {}).addressId });
   return res.status(STATUS.CREATED).json({ message: 'Paid from your wallet.', data });
 };
 
+// Verify payment
 const verifyRazorpay = async (req, res) => {
   const data = await paymentService.verifyRazorpay(getUserId(req), req.body || {});
   return res.status(STATUS.OK).json({ message: 'Payment successful.', data });
 };
 
+// Payment failure
 const reportFailure = async (req, res) => {
   const { reason, paymentId } = req.body || {};
   const data = await paymentService.reportFailure(getUserId(req), req.params.orderNumber, reason, paymentId);
   return res.status(STATUS.OK).json({ data });
 };
 
+// Retry payment
 const retry = async (req, res) => {
   const data = await paymentService.retry(getUserId(req), req.params.orderNumber, req.body || {});
   return res.status(STATUS.OK).json({ message: 'Payment restarted.', data });
 };
 
+// Abandon payment
 const abandon = async (req, res) => {
   const data = await paymentService.abandon(getUserId(req), req.params.orderNumber);
   return res.status(STATUS.OK).json({ data });
 };
 
+// Payment status
 const getStatus = async (req, res) => {
   const data = await paymentService.getStatus(getUserId(req), req.params.orderNumber);
   return res.status(STATUS.OK).json({ data });
 };
 
+// Razorpay webhook
 const razorpayWebhook = async (req, res) => {
   const data = await paymentService.handleRazorpayWebhook(
     req.rawBody,

@@ -1,5 +1,3 @@
-// src/services/admin/adminOfferServices.js
-// Admin side of the offers: product offers, category offers, and the referral programme rules.
 const mongoose = require('mongoose');
 const Offer = require('../../models/offer');
 const Product = require('../../models/products');
@@ -15,8 +13,6 @@ const ALLOWED_FIELDS = ['offerName', 'offerType', 'productId', 'categoryId', 'di
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const bad = (message, code = ERROR_CODES.INVALID_OFFER_DATA) => createError(message, STATUS.BAD_REQUEST, code);
 
-// "2026-03-31" (from a date input) -> start / end of that day in the server's time zone.
-// Anything else (an ISO date-time) is used as it is.
 const parseDate = (value, { endOfDay = false } = {}) => {
   if (value === null || value === undefined || value === '') return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value).trim());
@@ -29,7 +25,6 @@ const parseDate = (value, { endOfDay = false } = {}) => {
   return date;
 };
 
-// What the table shows in the Status column
 const displayStatus = (offer, now = new Date()) => {
   if (offer.expiryDate && new Date(offer.expiryDate) < now) return 'expired';
   if (!offer.isActive) return 'inactive';
@@ -53,7 +48,6 @@ const publicOffer = (offer, names = {}) => ({
   updatedAt: offer.updatedAt,
 });
 
-// Fill in the product / category names for a list of offers (2 queries, not 1 per row)
 const withNames = async (offers) => {
   const [products, categories] = await Promise.all([
     Product.find({ _id: { $in: offers.map((o) => o.productId).filter(Boolean) } }).select('productName').lean(),
@@ -73,7 +67,6 @@ const assertValidId = (id) => {
   if (!mongoose.isValidObjectId(id)) throw bad('Invalid offer id', ERROR_CODES.INVALID_OFFER_ID);
 };
 
-// Checks the fields and turns them into what is saved. `current` = the saved offer when editing.
 const buildOfferData = async (payload, current = null) => {
   const data = {};
   for (const field of ALLOWED_FIELDS) if (payload[field] !== undefined) data[field] = payload[field];
@@ -121,7 +114,6 @@ const buildOfferData = async (payload, current = null) => {
   if (expiry && start && expiry < start) throw bad('Expiry date must be on or after the start date');
   if (!current && expiry < new Date()) throw bad('Expiry date cannot be in the past');
 
-  // the target the offer applies to
   const type = merged.offerType;
   if (type === OFFER_TYPE.PRODUCT && (data.productId !== undefined || !current)) {
     if (!mongoose.isValidObjectId(data.productId)) throw bad('Choose a product for this offer');
@@ -139,8 +131,6 @@ const buildOfferData = async (payload, current = null) => {
   return { data, merged: { ...merged, ...data } };
 };
 
-// Two live offers on the same product / category with overlapping dates would confuse the admin
-// (the shopper still gets the larger one, but only one offer should exist per target at a time).
 const assertNoOverlap = async (merged, ignoreId = null) => {
   if (merged.isActive === false) return;
 
@@ -174,9 +164,7 @@ const saveOffer = async (doc) => {
   }
 };
 
-// ---------------------------------------------------------------
-// List
-// ---------------------------------------------------------------
+// Get offers
 const getOffers = async ({ search, type, status = 'all', page = 1, limit = 10, sort = 'newest' } = {}) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
@@ -233,9 +221,7 @@ const getOffers = async ({ search, type, status = 'all', page = 1, limit = 10, s
   };
 };
 
-// ---------------------------------------------------------------
-// One / create / update / switch / delete
-// ---------------------------------------------------------------
+// Get offer
 const getOfferById = async (offerId) => {
   assertValidId(offerId);
   const offer = await Offer.findOne({ _id: offerId, deletedAt: null }).lean();
@@ -244,6 +230,7 @@ const getOfferById = async (offerId) => {
   return { success: true, data: view };
 };
 
+// Create offer
 const createOffer = async (payload = {}) => {
   const { data, merged } = await buildOfferData(payload);
   await assertNoOverlap({ ...merged, isActive: data.isActive !== false });
@@ -254,6 +241,7 @@ const createOffer = async (payload = {}) => {
   return { success: true, data: view };
 };
 
+// Update offer
 const updateOffer = async (offerId, payload = {}) => {
   assertValidId(offerId);
   const offer = await Offer.findOne({ _id: offerId, deletedAt: null });
@@ -269,12 +257,12 @@ const updateOffer = async (offerId, payload = {}) => {
   return { success: true, data: view };
 };
 
+// Offer status
 const setOfferStatus = async (offerId) => {
   assertValidId(offerId);
   const offer = await Offer.findOne({ _id: offerId, deletedAt: null });
   if (!offer) throw createError('No offer exists with this id', STATUS.NOT_FOUND, ERROR_CODES.OFFER_NOT_FOUND);
 
-  // switching ON must not clash with another live offer on the same target
   if (!offer.isActive) await assertNoOverlap({ ...offer.toObject(), isActive: true }, offer._id);
 
   offer.isActive = !offer.isActive;
@@ -282,6 +270,7 @@ const setOfferStatus = async (offerId) => {
   return { success: true, data: { id: String(offer._id), offerName: offer.offerName, isActive: offer.isActive, status: displayStatus(offer) } };
 };
 
+// Delete offer
 const deleteOffer = async (offerId) => {
   assertValidId(offerId);
   const offer = await Offer.findOneAndUpdate(
@@ -293,9 +282,7 @@ const deleteOffer = async (offerId) => {
   return { success: true, data: { message: 'Offer deleted', id: String(offer._id), offerName: offer.offerName } };
 };
 
-// ---------------------------------------------------------------
-// Drop-down data for the create / edit form
-// ---------------------------------------------------------------
+// Offer options
 const getOfferOptions = async ({ search } = {}) => {
   const text = String(search || '').trim();
   const productFilter = { deletedAt: null, isActive: true };
@@ -315,10 +302,9 @@ const getOfferOptions = async ({ search } = {}) => {
   };
 };
 
-// ---------------------------------------------------------------
-// Referral programme (the third tab of the Offers page)
-// ---------------------------------------------------------------
+// Get referral
 const getReferral = async () => ({ success: true, data: await referralService.getAdminReferral() });
+// Update referral
 const updateReferral = async (payload) => ({ success: true, data: await referralService.updateReferralProgram(payload) });
 
 module.exports = {

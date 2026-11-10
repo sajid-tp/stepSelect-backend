@@ -1,4 +1,3 @@
-
 const mongoose = require('mongoose');
 const Cart = require('../../models/cart');
 const Coupon = require('../../models/coupon');
@@ -97,6 +96,7 @@ const assertCouponUsable = async (coupon, { userId, base, usedByUser, now = new 
 };
 
 
+// Available coupons
 const getAvailableCoupons = async (userId) => {
   const [coupons, { cart, base }] = await Promise.all([
     Coupon.find(liveCouponFilter()).sort({ createdAt: -1, _id: -1 }),
@@ -133,6 +133,7 @@ const getAvailableCoupons = async (userId) => {
 };
 
 
+// Apply coupon
 const applyCoupon = async (userId, couponCode) => {
   const code = typeof couponCode === 'string' ? couponCode.trim().toUpperCase() : '';
   if (!code) {
@@ -165,6 +166,7 @@ const applyCoupon = async (userId, couponCode) => {
 };
 
 
+// Remove coupon
 const removeCoupon = async (userId) => {
   await clearAppliedCoupon(userId);
 
@@ -181,14 +183,13 @@ const resolveAppliedCoupon = async (userId, cart, base) => {
   try {
     await assertCouponUsable(coupon, { userId, base });
   } catch (err) {
-    if (!err.statusCode) throw err; // unexpected error, not a coupon rule
+    if (!err.statusCode) throw err;
     return { coupon: null, discount: 0, invalid: { code: err.code, message: err.message } };
   }
   return { coupon, discount: calculateCouponDiscount(coupon, base), invalid: null };
 };
 
 
-// options.session (optional): run inside a MongoDB transaction (see utils/transaction.js)
 const redeemCoupon = async (couponId, { session } = {}) => {
   const updated = await Coupon.findOneAndUpdate(
     {
@@ -209,7 +210,6 @@ const redeemCoupon = async (couponId, { session } = {}) => {
 };
 
 
-// options.session (optional): run inside a MongoDB transaction (see utils/transaction.js)
 const releaseCoupon = async (couponId, { session } = {}) => {
   if (!couponId) return;
   await Coupon.updateOne({ _id: couponId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } }, { session });

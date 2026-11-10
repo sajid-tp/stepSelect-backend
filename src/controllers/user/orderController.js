@@ -14,21 +14,25 @@ const getUserId = (req) => {
   return id;
 };
 
+// Get orders
 const getMyOrders = async (req, res) => {
   const { search, status, page, limit } = req.query;
   const data = await orderService.getMyOrders(getUserId(req), { search, status, page, limit });
   return res.status(STATUS.OK).json({ data });
 };
 
+// Order reasons
 const getReasons = async (req, res) =>
   res.status(STATUS.OK).json({ data: { cancelReasons: CANCEL_REASONS, returnReasons: RETURN_REASONS } });
 
+// Get order
 const getMyOrder = async (req, res) => {
   const data = await orderService.getMyOrder(getUserId(req), req.params.orderId);
   return res.status(STATUS.OK).json({ data });
 };
 
 
+// Cancel order
 const cancelOrder = async (req, res) => {
   const body = req.body || {};
   const data = await orderService.cancelOrder(getUserId(req), req.params.orderId, {
@@ -38,6 +42,7 @@ const cancelOrder = async (req, res) => {
 };
 
 
+// Cancel item
 const cancelOrderItem = async (req, res) => {
   const { orderId, itemId } = req.params;
   const body = req.body || {};
@@ -49,6 +54,7 @@ const cancelOrderItem = async (req, res) => {
 };
 
 
+// Return order
 const returnOrder = async (req, res) => {
   const body = req.body || {};
   const data = await orderService.returnOrder(getUserId(req), req.params.orderId, {
@@ -60,6 +66,7 @@ const returnOrder = async (req, res) => {
 };
 
 
+// Return item
 const returnOrderItem = async (req, res) => {
   const { orderId, itemId } = req.params;
   const body = req.body || {};
@@ -73,6 +80,7 @@ const returnOrderItem = async (req, res) => {
 
 
 
+// Download invoice
 const downloadInvoice = async (req, res) => {
   const invoice = await orderService.getInvoiceData(getUserId(req), req.params.orderId);
   res.setHeader('Content-Type', 'application/pdf');

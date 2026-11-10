@@ -1,4 +1,3 @@
-// src/services/user/cartService.js
 const Cart = require('../../models/cart');
 const Wishlist = require('../../models/wishlist');
 const Product = require('../../models/products');
@@ -13,7 +12,6 @@ const { getFinalUnitPrice } = require('../../utils/orderHelpers');
 
 const MAX_QUANTITY_PER_ITEM = ORDER_LIMITS.MAX_QUANTITY_PER_VARIANT;
 
-// Internal Helper: check variantId and size, return the cleaned size
 const validateCartInput = (variantId, size) => {
   if (!variantId || !/^[0-9a-fA-F]{24}$/.test(variantId)) {
     throw createError(MESSAGES.VARIANT.INVALID_VARIANT_ID, STATUS.BAD_REQUEST);
@@ -26,7 +24,6 @@ const validateCartInput = (variantId, size) => {
   return String(size).trim();
 };
 
-// Internal Helper: check quantity is a whole number of at least 1
 const validateQuantity = (quantity) => {
   const qty = Number(quantity);
 
@@ -37,14 +34,12 @@ const validateQuantity = (quantity) => {
   return qty;
 };
 
-// Internal Helper: find the same variant + same size in the cart
 const findItem = (cart, variantId, size) => {
   return cart.items.find(
     (item) => String(item.variantId) === String(variantId) && item.size === size
   );
 };
 
-// Internal Helper: make sure the variant can be bought, return stock of that size
 const getStock = async (variantId, size) => {
   const variant = await Variant.findOne({ _id: variantId, isActive: true, deletedAt: null });
   if (!variant) {
@@ -64,7 +59,6 @@ const getStock = async (variantId, size) => {
   return sizeEntry.stock || 0;
 };
 
-// Internal Helper: check the new total quantity against the limit and the stock
 const checkQuantity = (total, stock) => {
   if (total > MAX_QUANTITY_PER_ITEM) {
     throw createError(MESSAGES.CART.MAX_QUANTITY_PER_ITEM_EXCEEDED(MAX_QUANTITY_PER_ITEM), STATUS.BAD_REQUEST);
@@ -79,21 +73,19 @@ const checkQuantity = (total, stock) => {
   }
 };
 
-// Internal Helper: turn the saved cart (only pointers) into what the page shows
 const buildCartView = async (cart) => {
   const view = {
     id: cart ? String(cart._id) : null,
     items: [],
-    totalPrice: 0, // what the customer pays for the items (after product / category offers)
-    totalMrp: 0, // the same items at their normal price
-    totalSavings: 0, // totalMrp - totalPrice
+    totalPrice: 0,
+    totalMrp: 0,
+    totalSavings: 0,
     totalItems: 0,
     maxQuantityPerItem: MAX_QUANTITY_PER_ITEM,
   };
 
   if (!cart || cart.items.length === 0) return view;
 
-  // Get every variant and product the cart points to
   const variantIds = cart.items.map((item) => item.variantId);
   const variants = await Variant.find({ _id: { $in: variantIds } });
 
@@ -107,14 +99,12 @@ const buildCartView = async (cart) => {
       ? products.find((p) => String(p._id) === String(variant.productId))
       : null;
 
-    // Stock of the chosen size
     let stock = 0;
     if (variant) {
       const sizeEntry = variant.sizes.find((s) => String(s.size) === item.size);
       if (sizeEntry) stock = sizeEntry.stock || 0;
     }
 
-    // Is there a problem with this item?
     let issue = null;
     if (
       !variant ||
@@ -132,7 +122,6 @@ const buildCartView = async (cart) => {
     }
     const isAvailable = issue === null;
 
-    // First image (can be a plain string or an object with url)
     let image = null;
     if (variant && variant.images && variant.images.length > 0) {
       const first = variant.images[0];
@@ -141,7 +130,6 @@ const buildCartView = async (cart) => {
 
     const price = variant ? variant.price || 0 : null;
 
-    // Offer price: the larger of the product offer and the category offer
     const { discountPercent, offer } = resolveDiscount(
       product ? offerMap.get(String(product._id)) : null,
       variant ? variant.discountPercent : 0
@@ -150,7 +138,6 @@ const buildCartView = async (cart) => {
     const lineTotal = finalPrice === null ? 0 : finalPrice * item.quantity;
     const lineMrp = price === null ? 0 : price * item.quantity;
 
-    // Only items that can be bought count towards the total price
     if (isAvailable) {
       view.totalPrice += lineTotal;
       view.totalMrp += lineMrp;
@@ -181,13 +168,13 @@ const buildCartView = async (cart) => {
   return view;
 };
 
-// 1. Get Cart
+// Get cart
 const getCart = async (userId) => {
   const cart = await Cart.findOne({ userId });
   return await buildCartView(cart);
 };
 
-// 2. Add To Cart
+// Add to cart
 const addToCart = async (userId, { variantId, size, quantity }) => {
   const sizeValue = validateCartInput(variantId, size);
   const qty = validateQuantity(quantity === undefined ? 1 : quantity);
@@ -197,7 +184,6 @@ const addToCart = async (userId, { variantId, size, quantity }) => {
   let cart = await Cart.findOne({ userId });
   if (!cart) cart = new Cart({ userId, items: [] });
 
-  // Same variant + size already in the cart? Then add to its quantity
   const existing = findItem(cart, variantId, sizeValue);
   const total = (existing ? existing.quantity : 0) + qty;
 
@@ -211,13 +197,12 @@ const addToCart = async (userId, { variantId, size, quantity }) => {
 
   await cart.save();
 
-  // Moved to cart: take this colour + size off the wishlist (if it was there)
   await Wishlist.updateOne({ userId }, { $pull: { items: { variantId, size: sizeValue } } });
 
   return await buildCartView(cart);
 };
 
-// 3. Update Cart Item Quantity
+// Update cart item
 const updateCartItem = async (userId, variantId, size, quantity) => {
   const sizeValue = validateCartInput(variantId, size);
   const qty = validateQuantity(quantity);
@@ -228,7 +213,6 @@ const updateCartItem = async (userId, variantId, size, quantity) => {
     throw createError(MESSAGES.CART.ITEM_NOT_FOUND_IN_CART, STATUS.NOT_FOUND);
   }
 
-  // Limit and stock only matter when the quantity goes up
   const isIncrease = qty > item.quantity;
   if (isIncrease) {
     const stock = await getStock(variantId, sizeValue);
@@ -240,7 +224,7 @@ const updateCartItem = async (userId, variantId, size, quantity) => {
   return await buildCartView(cart);
 };
 
-// 4. Remove Cart Item
+// Remove cart item
 const removeCartItem = async (userId, variantId, size) => {
   const sizeValue = validateCartInput(variantId, size);
 
@@ -255,7 +239,7 @@ const removeCartItem = async (userId, variantId, size) => {
   return await buildCartView(cart);
 };
 
-// 5. Clear Cart
+// Clear cart
 const clearCart = async (userId) => {
   const cart = await Cart.findOneAndUpdate(
     { userId },

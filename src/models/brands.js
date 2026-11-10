@@ -31,7 +31,6 @@ const brandSchema = mongoose.Schema(
   }
 );
 
-// Case-insensitive unique brand name
 brandSchema.index(
   { brandName: 1 },
   {

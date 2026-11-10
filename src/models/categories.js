@@ -9,8 +9,6 @@ const categorySchema = mongoose.Schema(
       trim: true,
     },
 
-    // Required/format rules are enforced in adminCategoryServices. Toggle / delete save with validateModifiedOnly,
-    // so older categories with an empty or short icon class can still be toggled and deleted.
     iconClass: {
       type: String,
       trim: true,
@@ -35,7 +33,6 @@ const categorySchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// Case-insensitive unique category name
 categorySchema.index(
   { categoryName: 1 },
   {

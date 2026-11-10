@@ -1,6 +1,7 @@
 const adminVariantService = require('../../services/admin/adminVariantServices');
 const STATUS = require('../../constants/statusCodes');
 
+// Get variants
 const getVariants = async (req, res) => {
   const { productId } = req.params;
   const { page } = req.query;
@@ -17,6 +18,7 @@ const getVariants = async (req, res) => {
 };
 
 
+// Add variant
 const addVariant = async (req, res) => {
   const { productId } = req.params;
 
@@ -41,6 +43,7 @@ const addVariant = async (req, res) => {
 };
 
 
+// Update variant
 const updateVariant = async (req, res) => {
   const { variantId } = req.params;
 
@@ -65,6 +68,7 @@ const updateVariant = async (req, res) => {
 };
 
 
+// Delete variant
 const deleteVariant = async (req, res) => {
   const { variantId } = req.params;
 
@@ -76,21 +80,9 @@ const deleteVariant = async (req, res) => {
 };
 
 
-// const toggleVariantStatus = async (req, res) => {
-//   const { variantId } = req.params;
-
-//   const data = await adminVariantService.toggleVariantStatus(
-//     variantId
-//   );
-
-//   return res.status(STATUS.OK).json(data);
-// };
-
-
 module.exports = {
   updateVariant,
   getVariants,
   deleteVariant,
-  // toggleVariantStatus,
   addVariant
 };

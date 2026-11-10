@@ -6,9 +6,7 @@ const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 const { NAME_LIMITS, DESCRIPTION_LIMITS } = require('../../constants/brandConstants');
 
-// Brand name: required, 2-50 characters. Returns the cleaned value (extra spaces collapsed).
 const validateBrandName = (value) => {
-  // Anything that is not a string (object, array, number...) counts as "not provided"
   const name = (typeof value === 'string' ? value : '').trim().replace(/\s+/g, ' ');
   const { MIN_LENGTH, MAX_LENGTH } = NAME_LIMITS;
   if (!name) {
@@ -27,7 +25,6 @@ const validateBrandName = (value) => {
   return name;
 };
 
-// Description: optional, 500 characters at most. Returns the trimmed text ('' when left empty).
 const validateDescription = (value) => {
   if (value === undefined || value === null) return '';
   if (typeof value !== 'string') {
@@ -51,10 +48,10 @@ const SORT_MAP = {
 
 
 
+// Get brands
 const getBrands = async ({ search, page = 1, sort, status, limit }) => {
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-  // default 8 for the admin table; callers (e.g. dropdowns) can ask for more, capped at 100
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 8, 1), 100);
 
   const filter = {
@@ -93,7 +90,7 @@ const getBrands = async ({ search, page = 1, sort, status, limit }) => {
 
   const brands = await Brand.find(filter)
     .sort(sortOption)
-    .collation({ locale: 'en', strength: 2 }) // case-insensitive A-Z
+    .collation({ locale: 'en', strength: 2 })
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
@@ -120,6 +117,7 @@ const getBrands = async ({ search, page = 1, sort, status, limit }) => {
 
 
 
+// Create brand
 const createBrand = async ({
   brandName,
   description,
@@ -184,6 +182,7 @@ const createBrand = async ({
 
 
 
+// Update brand
 const updateBrand = async (
   brandId,
   {
@@ -286,6 +285,7 @@ const updateBrand = async (
 
 
 
+// Brand status
 const toggleBrandStatus = async (brandId) => {
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {
@@ -329,6 +329,7 @@ const toggleBrandStatus = async (brandId) => {
 
 
 
+// Delete brand
 const deleteBrand = async (brandId) => {
 
   if (!mongoose.Types.ObjectId.isValid(brandId)) {

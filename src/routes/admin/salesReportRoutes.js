@@ -4,7 +4,6 @@ const { getSalesReport, exportSalesReport } = require('../../controllers/admin/s
 
 const router = express.Router();
 
-// "/export" is listed first so it is never mistaken for another route
 router.get('/export', protect('admin'), exportSalesReport);
 router.get('/', protect('admin'), getSalesReport);
 

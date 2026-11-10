@@ -4,6 +4,7 @@ const Category =
 
 
 
+// Get categories
 const getCategories = async () => {
 
   const categories =

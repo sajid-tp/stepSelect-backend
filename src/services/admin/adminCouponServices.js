@@ -20,7 +20,6 @@ const ALLOWED_FIELDS = [
 
 const bad = (message, code) => createError(message, STATUS.BAD_REQUEST, code);
 
-// A percentage coupon must take off a whole number of percent (1 to 90). Flat coupons are not checked here.
 const validatePercentageValue = (discountType, discountValue) => {
   if (discountType !== 'percentage' || discountValue === undefined || discountValue === null) return;
   const value = Number(discountValue);
@@ -32,7 +31,6 @@ const validatePercentageValue = (discountType, discountValue) => {
   }
 };
 
-// A fixed discount must be between ₹1 and ₹25,000 (up to 2 decimal places).
 const validateFlatValue = (discountType, discountValue) => {
   if (discountType !== 'flat' || discountValue === undefined || discountValue === null) return;
   const value = Number(discountValue);
@@ -49,7 +47,6 @@ const validateFlatValue = (discountType, discountValue) => {
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// true for 12, 12.5, 12.55 and false for 12.555 (max 2 decimal places)
 const hasMaxTwoDecimals = (n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
 
 const validateCouponInput = (data, { creating = false } = {}) => {
@@ -141,8 +138,6 @@ const validateCouponInput = (data, { creating = false } = {}) => {
   }
 };
 
-// Rules that depend on several fields together. It is always run on the FINAL values
-// (existing coupon + the changes), so editing one field can't break another.
 const assertCouponRules = (c, { creating = false, usedCount = 0 } = {}) => {
   const value = Number(c.discountValue);
   const minimumPurchase = Number(c.minimumPurchase) || 0;
@@ -156,7 +151,6 @@ const assertCouponRules = (c, { creating = false, usedCount = 0 } = {}) => {
       );
     }
   } else if (c.discountType === 'flat') {
-    // A flat coupon with no minimum (or a minimum smaller than the discount) could make a cart free
     if (minimumPurchase <= 0) {
       throw createError(
         'A flat coupon needs a minimum purchase greater than the discount amount',
@@ -205,6 +199,7 @@ const publicCoupon = (coupon) => ({
   updatedAt: coupon.updatedAt,
 });
 
+// Get coupons
 const getCoupons = async ({ search, status, page = 1, limit = 10, sort = 'newest' } = {}) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
@@ -255,6 +250,7 @@ const getCoupons = async ({ search, status, page = 1, limit = 10, sort = 'newest
   };
 };
 
+// Create coupon
 const createCoupon = async (payload = {}) => {
   const data = {};
   for (const field of ALLOWED_FIELDS) {
@@ -282,6 +278,7 @@ const createCoupon = async (payload = {}) => {
   }
 };
 
+// Get coupon
 const getCouponById = async (couponId) => {
   if (!mongoose.isValidObjectId(couponId)) {
     throw createError('Invalid coupon id', STATUS.BAD_REQUEST, 'INVALID_COUPON_ID');
@@ -291,6 +288,7 @@ const getCouponById = async (couponId) => {
   return { success: true, data: publicCoupon(coupon) };
 };
 
+// Update coupon
 const updateCoupon = async (couponId, payload = {}) => {
   if (!mongoose.isValidObjectId(couponId)) {
     throw createError('Invalid coupon id', STATUS.BAD_REQUEST, 'INVALID_COUPON_ID');
@@ -312,7 +310,6 @@ const updateCoupon = async (couponId, payload = {}) => {
     if (duplicate) throw createError('A coupon with this code already exists', STATUS.CONFLICT, 'COUPON_CODE_EXISTS');
   }
 
-  // Validate the resulting combination of old and new values, not just the partial payload.
   const merged = { ...coupon.toObject(), ...data };
   assertCouponRules(merged, { usedCount: coupon.usedCount });
   if (merged.discountType === 'flat' && merged.maximumDiscount != null) {
@@ -333,6 +330,7 @@ const updateCoupon = async (couponId, payload = {}) => {
   return { success: true, data: publicCoupon(coupon) };
 };
 
+// Coupon status
 const setCouponStatus = async (couponId) => {
   if (!mongoose.isValidObjectId(couponId)) {
     throw createError(
@@ -369,6 +367,7 @@ const setCouponStatus = async (couponId) => {
   };
 };
 
+// Delete coupon
 const deleteCoupon = async (couponId) => {
   if (!mongoose.isValidObjectId(couponId)) throw createError('Invalid coupon id', STATUS.BAD_REQUEST, 'INVALID_COUPON_ID');
   const coupon = await Coupon.findOneAndUpdate(

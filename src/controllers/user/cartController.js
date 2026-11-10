@@ -4,17 +4,6 @@ const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 
-/*
-  Response contract (every cart endpoint)
-
-  success  ->  200  { "message": "...", "data": <cart> }      (GET has no message)
-  failure  ->  4xx  { "error": { "code": "...", "message": "..." } }
-
-  <cart> = { id, items[], totalPrice, totalItems, maxQuantityPerItem }
-  See docs/CART_API.md for the full shape and every error code.
-*/
-
-// Adjust this one line if your auth middleware sets the user differently.
 const getUserId = (req) => {
   const id = req.user?.id || req.user?._id;
   if (!id) throw createError(MESSAGES.AUTH.AUTHENTICATION_REQUIRED, STATUS.UNAUTHORIZED, ERROR_CODES.UNAUTHORIZED);
@@ -24,13 +13,13 @@ const getUserId = (req) => {
 const sendCart = (res, cart, message) =>
   res.status(STATUS.OK).json(message ? { message, data: cart } : { data: cart });
 
-// GET /api/cart
+// Get cart
 const getCart = async (req, res) => {
   const cart = await cartService.getCart(getUserId(req));
   return sendCart(res, cart);
 };
 
-// POST /api/cart   body: { variantId, size, quantity? }
+// Add to cart
 const addToCart = async (req, res) => {
   const { variantId, size, quantity } = req.body || {};
 
@@ -38,7 +27,7 @@ const addToCart = async (req, res) => {
   return sendCart(res, cart, MESSAGES.CART.ITEM_ADDED_TO_CART);
 };
 
-// PATCH /api/cart/items/:variantId?size=10   body: { quantity }
+// Update cart item
 const updateCartItem = async (req, res) => {
   const { variantId } = req.params;
   const { size } = req.query;
@@ -48,7 +37,7 @@ const updateCartItem = async (req, res) => {
   return sendCart(res, cart, MESSAGES.CART.CART_UPDATED);
 };
 
-// DELETE /api/cart/items/:variantId?size=10
+// Remove cart item
 const removeCartItem = async (req, res) => {
   const { variantId } = req.params;
   const { size } = req.query;
@@ -57,7 +46,7 @@ const removeCartItem = async (req, res) => {
   return sendCart(res, cart, MESSAGES.CART.ITEM_REMOVED_FROM_CART);
 };
 
-// DELETE /api/cart
+// Clear cart
 const clearCart = async (req, res) => {
   const cart = await cartService.clearCart(getUserId(req));
   return sendCart(res, cart, MESSAGES.CART.CART_CLEARED);

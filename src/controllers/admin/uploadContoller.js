@@ -2,6 +2,7 @@ const uploadService = require("../../services/user/uploadService");
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
+// Upload images
 const uploadProductImages = async (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(STATUS.BAD_REQUEST).json({

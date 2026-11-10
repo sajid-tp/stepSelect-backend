@@ -1,7 +1,7 @@
 const userProductService = require('../../services/user/productService');
 const STATUS = require('../../constants/statusCodes');
 
-// GET /api/products
+// Get products
 const getProducts = async (req, res) => {
   const { search, category, brand, gender, minPrice, maxPrice, sort, page, limit } = req.query;
 
@@ -20,7 +20,7 @@ const getProducts = async (req, res) => {
   return res.status(STATUS.OK).json({ data });
 };
 
-// GET /api/products/:productId
+// Get product
 const getProduct = async (req, res) => {
   const { productId } = req.params;
 
@@ -31,7 +31,7 @@ const getProduct = async (req, res) => {
 
 
 
-// GET /api/products/:productId/related?limit=4
+// Related products
 const getRelatedProducts = async (req, res) => {
   const data = await userProductService.getRelatedProducts(
     req.params.productId,

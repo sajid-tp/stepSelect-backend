@@ -7,6 +7,7 @@ const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 
+// Get variants
 const getVariants = async (
   productId,
   { page = 1, limit = 5 }
@@ -103,57 +104,7 @@ const getVariants = async (
 };
 
 
-// const getVariant = async (variantId) => {
-
-//   if (!mongoose.Types.ObjectId.isValid(variantId)) {
-//     throw createError(
-//       MESSAGES.VARIANT.INVALID_VARIANT_ID,
-//       STATUS.BAD_REQUEST,
-//       ERROR_CODES.INVALID_VARIANT_ID
-//     );
-//   }
-
-
-//   const variant = await Variant.findOne({
-//     _id: variantId,
-//     deletedAt: null,
-//   });
-
-//   if (!variant) {
-//     throw createError(
-//       MESSAGES.VARIANT.VARIANT_NOT_FOUND,
-//       STATUS.NOT_FOUND,
-//       ERROR_CODES.VARIANT_NOT_FOUND
-//     );
-//   }
-
-//   const product = await Product.findOne({
-//     _id: variant.productId,
-//     deletedAt: null,
-//   });
-
-//   if (!product) {
-//     throw createError(
-//       MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
-//       STATUS.NOT_FOUND,
-//       ERROR_CODES.PRODUCT_NOT_FOUND
-//     );
-//   }
-
-
-//   return {
-//     id: variant._id,
-//     productId: variant.productId,
-//     color: variant.color,
-//     price: variant.price,
-//     images: variant.images,
-//     sizes: variant.sizes,
-//     isActive: variant.isActive,
-//     createdAt: variant.createdAt,
-//     updatedAt: variant.updatedAt,
-//   };
-// };
-
+// Add variant
 const addVariant = async (
   productId,
   {
@@ -312,6 +263,7 @@ const addVariant = async (
 
 
 
+// Update variant
 const updateVariant = async (
   variantId,
   {
@@ -322,10 +274,6 @@ const updateVariant = async (
   }
 ) => {
 
-  // -----------------------------------
-  // 1. Validate variant ID
-  // -----------------------------------
-
   if (!mongoose.Types.ObjectId.isValid(variantId)) {
     throw createError(
       MESSAGES.VARIANT.INVALID_VARIANT_ID,
@@ -334,10 +282,6 @@ const updateVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 2. Find variant
-  // -----------------------------------
 
   const existingVariant = await Variant.findOne({
   _id: variantId,
@@ -353,10 +297,6 @@ const updateVariant = async (
   }
 
 
-  // -----------------------------------
-  // 3. Check variant status
-  // -----------------------------------
-
   if (!existingVariant.isActive) {
     throw createError(
       MESSAGES.VARIANT.CANNOT_EDIT_AN_INACTIVE_VARIANT,
@@ -365,10 +305,6 @@ const updateVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 4. Validate color
-  // -----------------------------------
 
   const variantColor = (color || '').trim();
 
@@ -380,10 +316,6 @@ const updateVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 5. Validate price
-  // -----------------------------------
 
   if (
     price === undefined ||
@@ -409,10 +341,6 @@ const updateVariant = async (
   }
 
 
-  // -----------------------------------
-  // 6. Validate images
-  // -----------------------------------
-
   if (
     !Array.isArray(images) ||
     images.length < 3
@@ -425,10 +353,6 @@ const updateVariant = async (
   }
 
 
-  // -----------------------------------
-  // 7. Validate sizes
-  // -----------------------------------
-
   if (
     !Array.isArray(sizes) ||
     sizes.length === 0
@@ -440,10 +364,6 @@ const updateVariant = async (
     );
   }
 
-
-  // -----------------------------------
-  // 8. Validate each size
-  // -----------------------------------
 
   for (const sizeItem of sizes) {
 
@@ -483,10 +403,6 @@ const updateVariant = async (
   }
 
 
-  // -----------------------------------
-  // 9. Make sure parent product exists
-  // -----------------------------------
-
 const product = await Product.findOne({
   _id: existingVariant.productId,
   deletedAt: null,
@@ -501,10 +417,6 @@ const product = await Product.findOne({
   }
 
 
-  // -----------------------------------
-  // 10. Check parent product status
-  // -----------------------------------
-
   if (!product.isActive) {
     throw createError(
       MESSAGES.VARIANT.CANNOT_EDIT_A_VARIANT_OF_AN_INACTIVE_PRODUCT,
@@ -513,10 +425,6 @@ const product = await Product.findOne({
     );
   }
 
-
-  // -----------------------------------
-  // 11. Update variant
-  // -----------------------------------
 
   existingVariant.color = variantColor;
   existingVariant.price = price;
@@ -528,16 +436,8 @@ const product = await Product.findOne({
   }));
 
 
-  // -----------------------------------
-  // 12. Save
-  // -----------------------------------
-
   const updatedVariant = await existingVariant.save();
 
-
-  // -----------------------------------
-  // 13. Return updated variant
-  // -----------------------------------
 
   return {
     id: updatedVariant._id,
@@ -552,11 +452,8 @@ const product = await Product.findOne({
   };
 };
 
+// Delete variant
 const deleteVariant = async (variantId) => {
-
-  // -----------------------------------
-  // 1. Validate variant ID
-  // -----------------------------------
 
   if (!mongoose.Types.ObjectId.isValid(variantId)) {
     throw createError(
@@ -566,10 +463,6 @@ const deleteVariant = async (variantId) => {
     );
   }
 
-
-  // -----------------------------------
-  // 2. Find non-deleted variant
-  // -----------------------------------
 
   const existingVariant = await Variant.findOne({
     _id: variantId,
@@ -585,108 +478,15 @@ const deleteVariant = async (variantId) => {
   }
 
 
-  // -----------------------------------
-  // 3. Soft delete variant
-  // -----------------------------------
-
   existingVariant.deletedAt = new Date();
 
   await existingVariant.save();
 
 
-  // -----------------------------------
-  // 4. Return response
-  // -----------------------------------
-
   return {
     message: MESSAGES.VARIANT.VARIANT_DELETED_SUCCESSFULLY,
   };
 };
-
-// const toggleVariantStatus = async (variantId) => {
-
-//   // -----------------------------------
-//   // 1. Validate variant ID
-//   // -----------------------------------
-
-//   if (!mongoose.Types.ObjectId.isValid(variantId)) {
-//     throw createError(
-//       MESSAGES.VARIANT.INVALID_VARIANT_ID,
-//       STATUS.BAD_REQUEST,
-//       ERROR_CODES.INVALID_VARIANT_ID
-//     );
-//   }
-
-
-//   // -----------------------------------
-//   // 2. Find non-deleted variant
-//   // -----------------------------------
-
-//   const existingVariant = await Variant.findOne({
-//     _id: variantId,
-//     deletedAt: null,
-//   });
-
-//   if (!existingVariant) {
-//     throw createError(
-//       MESSAGES.VARIANT.VARIANT_NOT_FOUND,
-//       STATUS.NOT_FOUND,
-//       ERROR_CODES.VARIANT_NOT_FOUND
-//     );
-//   }
-
-
-//   // -----------------------------------
-//   // 3. Make sure parent product exists
-//   // -----------------------------------
-
-//   const product = await Product.findOne({
-//     _id: existingVariant.productId,
-//     deletedAt: null,
-//   });
-
-//   if (!product) {
-//     throw createError(
-//       MESSAGES.VARIANT.ASSOCIATED_PRODUCT_NOT_FOUND,
-//       STATUS.NOT_FOUND,
-//       ERROR_CODES.PRODUCT_NOT_FOUND
-//     );
-//   }
-
-
-//   // -----------------------------------
-//   // 4. Check parent product status
-//   // -----------------------------------
-
-//   if (!product.isActive) {
-//     throw createError(
-//       MESSAGES.VARIANT.CANNOT_CHANGE_STATUS_OF_VARIANT_OF_INACTIVE_PRODUCT,
-//       STATUS.BAD_REQUEST,
-//       ERROR_CODES.PRODUCT_INACTIVE
-//     );
-//   }
-
-
-//   // -----------------------------------
-//   // 5. Toggle variant status
-//   // -----------------------------------
-
-//   existingVariant.isActive = !existingVariant.isActive;
-
-//   await existingVariant.save();
-
-
-//   // -----------------------------------
-//   // 6. Return response
-//   // -----------------------------------
-
-//   return {
-//     message: existingVariant.isActive
-//       ? MESSAGES.VARIANT.VARIANT_ACTIVATED_SUCCESSFULLY
-//       : MESSAGES.VARIANT.VARIANT_DEACTIVATED_SUCCESSFULLY,
-//     isActive: existingVariant.isActive,
-//   };
-// };
 
 module.exports = {
   updateVariant,

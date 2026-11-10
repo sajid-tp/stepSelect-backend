@@ -1,4 +1,3 @@
-
 const Cart = require('../../models/cart');
 const Wishlist = require('../../models/wishlist');
 const Address = require('../../models/address');
@@ -31,9 +30,8 @@ const { releaseUserUnpaidOrders } = require('../payment/unpaidOrders');
 const walletService = require('./walletService');
 const referralService = require('./referralService');
 
+// Checkout summary
 const getCheckoutSummary = async (userId) => {
-  // Shoes held by an earlier online attempt that was never finished go back on the shelf, so they show up as available.
-  // An order that already had a failed payment and can still be retried is kept: the customer may come back to it.
   await releaseUserUnpaidOrders(userId, undefined, { keepRetryable: true });
 
   const [cart, addresses, walletBalance] = await Promise.all([
@@ -53,7 +51,6 @@ const getCheckoutSummary = async (userId) => {
     couponMessage = MESSAGES.COUPON.COUPON_REMOVED_FROM_CART(applied.invalid.message);
   }
 
-  // Referral offer (a referred friend's first order), taken off after the coupon
   const referral = await referralService.resolveReferralDiscount(userId, base);
   const totals = calculateTotals(buyable, undefined, applied.discount, referral.discount);
   const defaultAddress = addresses.find((a) => a.isDefault) || null;
@@ -90,7 +87,6 @@ const getCheckoutSummary = async (userId) => {
           discountValue: applied.coupon.discountValue,
           maximumDiscount: applied.coupon.maximumDiscount ?? null,
           discountAmount: totals.couponDiscount,
-          // true when the percentage would have given more than the maximum discount, so the cap was used
           capApplied:
             applied.coupon.discountType === 'percentage' &&
             applied.coupon.maximumDiscount > 0 &&
@@ -105,7 +101,6 @@ const getCheckoutSummary = async (userId) => {
       minOrderAmount: referral.minOrderAmount,
       hint: referral.hint,
     },
-    // COD + Razorpay (when on) + the wallet
     paymentMethods: [...getEnabledMethods(), PAYMENT_METHODS.WALLET],
     walletBalance,
 
@@ -139,10 +134,7 @@ const rollbackStock = async (taken) => {
 };
 
 
-// options.allowOnline is only passed by the payment service. The normal /place-order endpoint
-// never sets it, so it stays Cash on Delivery only.
-// For an online method the order is created UNPAID: stock is held, but the cart is kept
-// until the payment succeeds (see services/payment/paymentService.js).
+// Place order
 const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnline = false } = {}) => {
   const isOnline =
     allowOnline &&
@@ -154,7 +146,6 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
     throw createError(MESSAGES.CHECKOUT.ONLY_COD_IS_AVAILABLE, STATUS.BAD_REQUEST);
   }
 
-  // A new attempt replaces the customer's earlier unpaid online order (stock goes back first)
   await releaseUserUnpaidOrders(userId);
 
 
@@ -214,7 +205,7 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
         couponRedeemed = await couponService.redeemCoupon(coupon._id, { session });
         if (!couponRedeemed) {
           const limitError = createError(MESSAGES.COUPON.COUPON_LIMIT_REACHED, STATUS.BAD_REQUEST, ERROR_CODES.COUPON_LIMIT_REACHED);
-          limitError.clearCoupon = true; // the applied coupon is removed from the cart after the rollback
+          limitError.clearCoupon = true;
           throw limitError;
         }
       }
@@ -237,7 +228,6 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
             ...totals,
             couponId: coupon ? coupon._id : null,
             couponCode: coupon ? coupon.couponCode : null,
-            // what the referrer is paid when this order is delivered (only when the referral offer was used)
             referralReward: totals.referralDiscount > 0 ? referral.reward : 0,
             status: ORDER_STATUS.PENDING,
             paymentMethod: isOnline ? paymentMethod : PAYMENT_METHODS.COD,
@@ -276,7 +266,6 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
       return order;
     } catch (err) {
       if (!session) {
-        // No transaction: undo by hand
         await rollbackStock(taken);
         if (couponRedeemed) await couponService.releaseCoupon(coupon._id);
         if (order) {
@@ -294,14 +283,12 @@ const placeOrder = async (userId, { addressId, paymentMethod } = {}, { allowOnli
       order = await runInTransaction(createOrderRecords);
     } catch (err) {
       if (err.clearCoupon) await couponService.clearAppliedCoupon(userId);
-      // Two orders got the same random order number: everything was undone, try again with a new number
       if (err.code === 11000 && attempt < 4) continue;
       throw err;
     }
   }
   if (!order) throw new Error('Could not generate a unique order number');
 
-  // Online orders empty the cart later, when the payment succeeds
   if (!isOnline) {
     try {
       await Cart.updateOne({ userId }, { $set: { items: [], couponId: null } });

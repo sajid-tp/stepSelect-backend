@@ -47,12 +47,9 @@ app.use(cors({
   credentials: true
 }));
 
-// rawBody is kept so the Razorpay webhook signature can be checked
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
-// Never let the browser (or a proxy) cache API responses. Without this, pressing Back after
-// logout can re-show the previous user's orders/profile straight from the HTTP cache.
 app.use('/api', (req, res, next) => {
   res.set({
     'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -63,7 +60,7 @@ app.use('/api', (req, res, next) => {
 });
 
 connectDB();
-startPaymentWorker(); // closes unpaid online orders after 30 minutes / 4 failed attempts and gives the stock back
+startPaymentWorker();
 
 app.use('/api/auth', authRoutes);
 app.use('/api/account',accountRoutes);
@@ -81,7 +78,6 @@ app.use('/api/coupons',couponRoutes);
 app.use('/api/referrals', referralRoutes);
 app.use('/api/banners', bannerRoutes);
 
-//admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/users',adminUserRoutes);
 app.use('/api/admin/categories',adminCategoryRoutes);
@@ -101,7 +97,6 @@ app.use(
 );
 
 app.use(notFoundMiddleware);
-// Error handler: must stay LAST, after every route
 app.use(errorHandler);
 
 

@@ -1,9 +1,8 @@
-// src/controllers/user/uploadController.js
 const uploadService = require('../../services/user/uploadService');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
-// 1. Upload single image
+// Upload image
 const uploadImage = async (req, res) => {
   if (!req.file) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.UPLOAD.NO_FILE_UPLOADED });
@@ -13,7 +12,7 @@ const uploadImage = async (req, res) => {
   return res.status(STATUS.OK).json({ url });
 };
 
-// 2. Upload multiple images
+// Upload images
 const uploadMultipleImages = async (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.UPLOAD.NO_FILES_UPLOADED });

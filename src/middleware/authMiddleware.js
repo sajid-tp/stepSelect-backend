@@ -1,4 +1,3 @@
-
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
 const STATUS = require("../constants/statusCodes");
@@ -6,9 +5,6 @@ const MESSAGES = require("../constants/messages");
 const ERROR_CODES = require("../constants/errorCodes");
 
 const protect = (role = "user") => async (req, res, next) => {
-  // Preserve the existing cookie selection logic
-
-
   const cookieName = role === "admin" ? "token" : "accessToken";
 
   const token = req.cookies?.[cookieName];
@@ -22,7 +18,6 @@ const protect = (role = "user") => async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Admin authentication
     if (role === "admin") {
       if (!decoded.isAdmin) {
         return res.status(STATUS.FORBIDDEN).json({
@@ -34,7 +29,6 @@ const protect = (role = "user") => async (req, res, next) => {
       return next();
     }
 
-    // User authentication
     const userId = decoded.id;
 
     if (!userId) {

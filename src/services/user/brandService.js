@@ -4,6 +4,7 @@ const Brand =
 
 
 
+// Get brands
 const getBrands = async () => {
 
   const brands =

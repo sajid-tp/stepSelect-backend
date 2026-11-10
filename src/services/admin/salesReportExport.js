@@ -1,5 +1,3 @@
-// src/services/admin/salesReportExport.js
-// Builds the downloadable sales report: a PDF (pdfkit, like the invoice) and an Excel file.
 const PDFDocument = require('pdfkit');
 const { buildXlsx } = require('../../utils/xlsxWriter');
 
@@ -16,16 +14,15 @@ const STATUS_TEXT = {
   delivered: 'Delivered',
 };
 
-/* ---------------------------- PDF ---------------------------- */
+// PDF export
 const writePdf = (res, data) => {
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 36 });
   doc.pipe(res);
 
   const left = 36;
-  const right = doc.page.width - 36; // 806
+  const right = doc.page.width - 36;
   const bottom = doc.page.height - 50;
 
-  // Header
   doc.font('Helvetica-Bold').fontSize(20).fillColor('#f4511e').text('STEP SELECT', left, 36);
   doc.font('Helvetica').fontSize(10).fillColor('#555').text('Sales Report', left, 60);
   doc.fillColor('#000').fontSize(10);
@@ -33,7 +30,6 @@ const writePdf = (res, data) => {
   doc.text(`Generated: ${dateTimeText(new Date())}`, left, 52, { align: 'right', width: right - left });
   doc.moveTo(left, 78).lineTo(right, 78).strokeColor('#e5e5e5').stroke();
 
-  // Summary cards
   const s = data.summary;
   const cards = [
     ['Total revenue', money(s.revenue)],
@@ -49,7 +45,6 @@ const writePdf = (res, data) => {
     doc.font('Helvetica-Bold').fontSize(14).fillColor('#111').text(value, x + 10, 114, { width: cardWidth - 20 });
   });
 
-  // Discount breakdown (one line)
   doc.font('Helvetica').fontSize(9).fillColor('#333');
   doc.text(
     `Gross sales ${money(s.gross)}   |   Offer discount ${money(s.offerDiscount)}   |   ` +
@@ -59,7 +54,6 @@ const writePdf = (res, data) => {
     { width: right - left }
   );
 
-  // Table
   const cols = [
     { key: 'date', title: 'Date', x: 36, w: 62 },
     { key: 'order', title: 'Order', x: 98, w: 112 },
@@ -121,7 +115,7 @@ const writePdf = (res, data) => {
   doc.end();
 };
 
-/* --------------------------- Excel --------------------------- */
+// Excel export
 const buildExcel = (data) => {
   const s = data.summary;
 

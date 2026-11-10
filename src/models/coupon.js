@@ -58,7 +58,6 @@ const couponSchema = new mongoose.Schema(
       max: [COUPON_LIMITS.MAX_USES_PER_CUSTOMER, 'Per-user usage limit cannot exceed 5'],
       default: 1,
     },
-    // Increment this only when an order is successfully placed with the coupon.
     usedCount: {
       type: Number,
       min: 0,
@@ -77,7 +76,6 @@ const couponSchema = new mongoose.Schema(
 );
 
 couponSchema.pre('validate', function () {
-  // Only on new coupons or when the value/type changes, so an older coupon can still be activated/deactivated
   if (
     this.discountType === 'percentage' &&
     this.discountValue > COUPON_LIMITS.MAX_PERCENT &&

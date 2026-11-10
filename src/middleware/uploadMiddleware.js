@@ -1,17 +1,14 @@
-// middleware/uploadMiddleware.js
 const multer = require('multer');
 const createError = require('../utils/createError');
 const STATUS = require('../constants/statusCodes');
 const MESSAGES = require('../constants/messages');
 const ERROR_CODES = require('../constants/errorCodes');
 
-// Store the file in memory (as a Buffer), not on disk
 const storage = multer.memoryStorage();
 
-// General uploader (admin product images, banners) - unchanged
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit per file
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
@@ -21,8 +18,7 @@ const upload = multer({
   },
 });
 
-// ---- Profile photo: same limits as the Edit Profile screen -----------------
-const PROFILE_IMAGE_MAX_BYTES = 3 * 1024 * 1024; // 3MB (matches the frontend)
+const PROFILE_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 const PROFILE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 const profileImageUpload = multer({
@@ -37,8 +33,6 @@ const profileImageUpload = multer({
   },
 });
 
-// Wrapped so multer errors (e.g. "file too large") become a clean 400
-// instead of falling through to the generic 500 handler.
 const uploadProfileImage = (req, res, next) => {
   profileImageUpload.single('profileImage')(req, res, (err) => {
     if (!err) return next();

@@ -1,10 +1,7 @@
-// src/services/user/invoiceService.js
-// Builds the invoice PDF with pdfkit and streams it into the response.
 const PDFDocument = require('pdfkit');
 
 const money = (n) => `Rs. ${Number(n || 0).toLocaleString('en-IN')}`;
 
-// The invoice can be downloaded as soon as the order is placed, so it shows the CURRENT status
 const STATUS_LABEL = {
   pending: 'Processing',
   shipped: 'Shipped',
@@ -24,11 +21,11 @@ const paymentLine = (order) => {
   return `${order.paymentMethod} (${order.paymentStatus})`;
 };
 
+// Invoice PDF
 const writeInvoice = (res, { order, items }) => {
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   doc.pipe(res);
 
-  // Header
   doc.fontSize(22).font('Helvetica-Bold').text('STEP SELECT', { align: 'left' });
   doc.fontSize(10).font('Helvetica').fillColor('#555').text('Tax Invoice', { align: 'left' });
   doc.moveUp(2);
@@ -39,7 +36,6 @@ const writeInvoice = (res, { order, items }) => {
   doc.text(`Invoice generated: ${new Date().toLocaleDateString('en-IN')}`, { align: 'right' });
   doc.moveDown(2);
 
-  // Ship to
   const a = order.shippingAddress;
   doc.font('Helvetica-Bold').fontSize(11).text('Ship to');
   doc.font('Helvetica').fontSize(10);
@@ -49,7 +45,6 @@ const writeInvoice = (res, { order, items }) => {
   doc.text(`Phone: ${a.phoneNumber}`);
   doc.moveDown(1.5);
 
-  // Table header
   const col = { name: 50, size: 225, qty: 262, price: 295, status: 365, total: 460 };
   let y = doc.y;
   doc.rect(50, y - 4, 495, 20).fill('#f1f1f1');
@@ -62,7 +57,6 @@ const writeInvoice = (res, { order, items }) => {
   doc.text('Total', col.total, y);
   y += 24;
 
-  // Rows
   doc.font('Helvetica').fontSize(10);
   for (const item of items) {
     if (y > 720) {
@@ -83,7 +77,6 @@ const writeInvoice = (res, { order, items }) => {
   doc.moveTo(50, y).lineTo(545, y).strokeColor('#ccc').stroke();
   y += 12;
 
-  // Totals
   const row = (label, value, bold = false) => {
     doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 12 : 10).fillColor('#000');
     doc.text(label, 330, y);

@@ -1,4 +1,3 @@
-
 const Variant = require('../models/variants');
 const Product = require('../models/products');
 const Category = require('../models/categories');
@@ -35,7 +34,6 @@ const buildLines = async (cart) => {
     }
 
     const price = variant ? Number(variant.price) || 0 : 0;
-    // product / category offer (the larger one wins), recalculated every time so a price never goes stale
     const { discountPercent, offer } = resolveDiscount(
       product ? offerMap.get(String(product._id)) : null,
       variant ? variant.discountPercent : 0

@@ -1,10 +1,10 @@
-// src/services/adminAuthServices.js
 const { generateAdminToken } = require('../../utils/jwt');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
 
+// Admin login
 const loginAdmin = async (email, password) => {
 
     const isValidEmail = email === process.env.ADMIN_EMAIL;

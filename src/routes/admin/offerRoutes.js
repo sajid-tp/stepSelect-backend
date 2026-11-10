@@ -15,7 +15,6 @@ const {
 
 router.use(protect('admin'));
 
-// fixed paths first, so "/options" and "/referral" are not read as an :offerId
 router.get('/options', getOfferOptions);
 router.get('/referral', getReferral);
 router.put('/referral', updateReferral);

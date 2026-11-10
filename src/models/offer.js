@@ -1,8 +1,6 @@
 const mongoose = require('mongoose');
 const { OFFER_TYPE, OFFER_LIMITS } = require('../constants/offerConstants');
 
-// One percentage-off offer, either on a single product or on a whole category.
-// When a shoe has both, the shopper gets the larger of the two (see services/user/offerService.js).
 const offerSchema = new mongoose.Schema(
   {
     offerName: {
@@ -17,7 +15,6 @@ const offerSchema = new mongoose.Schema(
       enum: Object.values(OFFER_TYPE),
       required: [true, 'Offer type is required'],
     },
-    // Only one of these is filled, depending on offerType
     productId: { type: mongoose.Schema.Types.ObjectId, ref: 'product', default: null },
     categoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', default: null },
 

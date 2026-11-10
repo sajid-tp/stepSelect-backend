@@ -1,10 +1,3 @@
-// src/services/user/walletService.js
-// The customer wallet: balance, history, Razorpay top-up, and the two money moves
-// (creditWallet / debitWallet) that the rest of the backend uses for refunds and payments.
-//
-// Rules:
-//   IN  : only through Razorpay (top-up), or as a refund / reward.
-//   OUT : only to pay for an order. There is no withdrawal and nothing is ever sent back to Razorpay.
 const mongoose = require('mongoose');
 const Wallet = require('../../models/wallet');
 const WalletTransaction = require('../../models/walletTransaction');
@@ -23,14 +16,11 @@ const razorpay = require('../payment/gateways/razorpay');
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
 
-// Money is stored in paise (integers). Only this file converts.
 const toPaise = (rupees) => Math.round((Number(rupees) || 0) * 100);
 const toRupees = (paise) => (Number(paise) || 0) / 100;
 
-// Adding money is on whenever Razorpay is set up (real test keys, or the built-in demo popup)
 const topUpEnabled = () => razorpay.isConfigured();
 
-// Every customer has exactly one wallet; it is created the first time it is needed.
 const ensureWallet = async (userId) => {
   try {
     return await Wallet.findOneAndUpdate(
@@ -39,7 +29,6 @@ const ensureWallet = async (userId) => {
       { upsert: true, returnDocument: 'after' }
     );
   } catch (err) {
-    // Two requests created it at the same moment: the wallet exists now, just read it
     if (err.code === 11000) return Wallet.findOne({ userId });
     throw err;
   }
@@ -56,12 +45,6 @@ const toTransactionView = (tx) => ({
   createdAt: tx.createdAt,
 });
 
-// ---------------------------------------------------------------
-// The one place that changes a balance
-// ---------------------------------------------------------------
-// 1. write the history row (the unique idempotencyKey stops a repeat)
-// 2. change the balance in ONE atomic update (a debit only matches while enough money is there)
-// 3. put the new balance on the history row
 const applyEntry = async (userId, type, rupees, meta = {}) => {
   const paise = toPaise(rupees);
   if (!(paise > 0)) throw createError('The amount must be more than zero.', STATUS.BAD_REQUEST);
@@ -81,7 +64,6 @@ const applyEntry = async (userId, type, rupees, meta = {}) => {
       idempotencyKey: meta.idempotencyKey || undefined,
     });
   } catch (err) {
-    // Same key again: this money move already happened, so do nothing a second time
     if (err.code === 11000 && meta.idempotencyKey) {
       const existing = await WalletTransaction.findOne({ idempotencyKey: meta.idempotencyKey });
       return { duplicate: true, transaction: existing ? toTransactionView(existing) : null };
@@ -101,16 +83,13 @@ const applyEntry = async (userId, type, rupees, meta = {}) => {
 
     return { duplicate: false, transaction: toTransactionView(tx), balance: toRupees(wallet.balancePaise) };
   } catch (err) {
-    await WalletTransaction.deleteOne({ _id: tx._id }).catch(() => {}); // nothing moved: remove the row
+    await WalletTransaction.deleteOne({ _id: tx._id }).catch(() => {});
     throw err;
   }
 };
 
-// Money INTO the wallet (refunds, top-ups)
 const creditWallet = (userId, rupees, meta) => applyEntry(userId, WALLET_TX_TYPE.CREDIT, rupees, meta);
 
-// Money OUT of the wallet (paying an order). Throws 400 when the balance is too low.
-// Only paying for an order may take money out; any other reason is refused.
 const debitWallet = async (userId, rupees, meta = {}) => {
   if (!WALLET_DEBIT_SOURCES.includes(meta.source)) {
     throw createError('Money cannot be taken out of the wallet.', STATUS.FORBIDDEN);
@@ -123,9 +102,7 @@ const getBalance = async (userId) => {
   return toRupees(wallet.balancePaise);
 };
 
-// ---------------------------------------------------------------
-// Wallet page: balance + history (newest first, optional credit / debit filter, pages)
-// ---------------------------------------------------------------
+// Get wallet
 const getWallet = async (userId, { type, page, limit } = {}) => {
   const wallet = await ensureWallet(userId);
 
@@ -158,15 +135,6 @@ const getWallet = async (userId, { type, page, limit } = {}) => {
   };
 };
 
-// ---------------------------------------------------------------
-// Add money through Razorpay
-// ---------------------------------------------------------------
-//   1. initiateTopUp -> checks the amount, saves a WalletTopUp row, creates the Razorpay order
-//   2. customer pays in the Razorpay popup
-//   3. verifyTopUp   -> checks Razorpay's signature, then credits the wallet (once only)
-//      (the webhook does the same, for customers who pay and then close the browser)
-// The amount that is credited is the one saved in step 1, never one sent by the browser.
-
 const validateTopUpAmount = (amount) => {
   const rupees = Number(amount);
   if (!Number.isFinite(rupees) || rupees <= 0) {
@@ -181,6 +149,7 @@ const validateTopUpAmount = (amount) => {
   return rupees;
 };
 
+// Start top-up
 const initiateTopUp = async (userId, amount) => {
   if (!razorpay.isConfigured()) {
     throw createError('Adding money to the wallet is not available right now.', STATUS.SERVICE_UNAVAILABLE);
@@ -188,7 +157,6 @@ const initiateTopUp = async (userId, amount) => {
 
   const rupees = validateTopUpAmount(amount);
 
-  // The id is made first so it can go on the Razorpay receipt (max 40 characters)
   const topUpId = new mongoose.Types.ObjectId();
   const session = await razorpay.createGatewayOrder({
     amountInr: rupees,
@@ -204,12 +172,9 @@ const initiateTopUp = async (userId, amount) => {
     gatewayOrderId: session.gatewayOrderId,
   });
 
-  // `amount` (paise) comes from clientData: it is what the Razorpay popup needs. `amountInr` is for display.
   return { topUpId: String(topUpId), gateway: razorpay.name, amountInr: rupees, ...session.clientData };
 };
 
-// Credit the wallet for a paid top-up. Safe to call twice (verify + webhook): the idempotency key
-// makes sure the money is added only once.
 const settleTopUp = async (topUp, paymentId) => {
   const result = await creditWallet(topUp.userId, toRupees(topUp.amountPaise), {
     source: WALLET_SOURCE.ADD_MONEY,
@@ -232,7 +197,7 @@ const markTopUpFailed = (topUp, reason) =>
     { $set: { status: WALLET_TOPUP_STATUS.FAILED, failureReason: String(reason || 'Payment failed').slice(0, 200) } }
   );
 
-// The Razorpay popup returned a payment: check its signature, then add the money
+// Verify top-up
 const verifyTopUp = async (userId, body = {}) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
 
@@ -253,13 +218,11 @@ const verifyTopUp = async (userId, body = {}) => {
   return settleTopUp(topUp, razorpay_payment_id);
 };
 
-// Razorpay webhook for a wallet top-up (called from paymentService when the order is not a shop order)
 const handleTopUpWebhook = async (eventName, payment) => {
   const topUp = await WalletTopUp.findOne({ gatewayOrderId: payment?.order_id });
   if (!topUp) return { handled: false };
 
   if (eventName === 'payment.captured' || eventName === 'order.paid') {
-    // Only credit when Razorpay says it received exactly the amount we asked for
     if (payment.amount !== undefined && Number(payment.amount) !== topUp.amountPaise) {
       console.error('Wallet top-up amount mismatch', String(topUp._id));
       return { handled: true };

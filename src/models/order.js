@@ -33,8 +33,6 @@ const orderSchema = new mongoose.Schema(
     couponId: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon', default: null },
     couponCode: { type: String, default: null },               
     couponDiscount: { type: Number, default: 0, min: 0 },       
-    // Referral offer (a referred friend's first order). referralReward is what the referrer
-    // receives in their wallet once this order is delivered.
     referralDiscount: { type: Number, default: 0, min: 0 },
     referralReward: { type: Number, default: 0, min: 0 },
 
@@ -42,20 +40,19 @@ const orderSchema = new mongoose.Schema(
     paymentMethod: { type: String, enum: Object.values(PAYMENT_METHODS), default: PAYMENT_METHODS.COD },
     paymentStatus: { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.PENDING },
 
-    // Online payment details (stay empty for Cash on Delivery)
     payment: {
-      gateway: { type: String, default: null },          // RAZORPAY | WALLET
-      gatewayOrderId: { type: String, default: null },   // id of the order at the gateway
-      paymentId: { type: String, default: null },        // payment / capture id after success
-      currency: { type: String, default: null },         // currency charged at the gateway
-      chargedAmount: { type: Number, default: 0 },       // amount in that currency
-      paidInr: { type: Number, default: 0 },             // amount paid, in INR
-      refundedInr: { type: Number, default: 0 },         // total refunded so far, in INR
-      attempts: { type: Number, default: 0 },                // payment attempts started so far (4 allowed: 3 + a final one after a cool-down)
-      attemptOpen: { type: Boolean, default: false },        // true while an attempt is running (started, not yet paid or failed)
-      lastAttemptAt: { type: Date, default: null },          // when the latest attempt started
-      lastFailedAt: { type: Date, default: null },           // when the latest attempt failed (the cool-down before the final attempt starts here)
-      attemptHistory: {                                      // one entry per FAILED attempt
+      gateway: { type: String, default: null },
+      gatewayOrderId: { type: String, default: null },
+      paymentId: { type: String, default: null },
+      currency: { type: String, default: null },
+      chargedAmount: { type: Number, default: 0 },
+      paidInr: { type: Number, default: 0 },
+      refundedInr: { type: Number, default: 0 },
+      attempts: { type: Number, default: 0 },
+      attemptOpen: { type: Boolean, default: false },
+      lastAttemptAt: { type: Date, default: null },
+      lastFailedAt: { type: Date, default: null },
+      attemptHistory: {
         type: [
           {
             reason: { type: String, default: null },
@@ -66,9 +63,9 @@ const orderSchema = new mongoose.Schema(
         ],
         default: [],
       },
-      failedPaymentIds: { type: [String], default: [] },     // Razorpay payment ids that FAILED (so the browser and the webhook never count one twice)
-      duplicatePaymentIds: { type: [String], default: [] },  // extra payments for an order that was already paid (refunded to the wallet)
-      closedReason: { type: String, enum: ['expired', 'exhausted', 'abandoned', null], default: null }, // why an unpaid order was closed
+      failedPaymentIds: { type: [String], default: [] },
+      duplicatePaymentIds: { type: [String], default: [] },
+      closedReason: { type: String, enum: ['expired', 'exhausted', 'abandoned', null], default: null },
       closedAt: { type: Date, default: null },
       failureReason: { type: String, default: null },
       refundError: { type: String, default: null },

@@ -1,14 +1,3 @@
-// src/services/user/referralService.js
-// The referral programme.
-//
-//   Two ways to refer a friend (both end up in user.referredBy):
-//     1. Referral CODE  - "SAJID-7K2Q", typed in the optional field of the signup form
-//     2. Invite LINK    - "<client>/invite/<token>", opens the signup page with the friend already linked
-//
-//   The reward:
-//     * the FRIEND gets a flat discount on their first order (if it is big enough)
-//     * the REFERRER gets wallet credit once that order is DELIVERED
-//   The amounts live in the ReferralSetting document (admin: Offers > Referral Offers).
 const crypto = require('crypto');
 const User = require('../../models/user');
 const Order = require('../../models/order');
@@ -22,7 +11,6 @@ const { ORDER_STATUS } = require('../../constants/orderConstants');
 const { WALLET_SOURCE } = require('../../constants/walletConstants');
 const walletService = require('./walletService');
 
-// No 0/O/1/I so a code is easy to read out loud
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const randomChars = (length) => {
@@ -32,7 +20,6 @@ const randomChars = (length) => {
   return out;
 };
 
-// "Sajid TP" -> "SAJID", "Jo" -> "JO"; falls back to STEP
 const codePrefix = (username) => {
   const letters = String(username || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
   return letters || 'STEP';
@@ -45,14 +32,11 @@ const settingsView = (s) => ({
   referrerReward: s.referrerReward,
 });
 
+// Referral program
 const getProgram = async () => settingsView(await ReferralSetting.getSettings());
 
 const clientOrigin = () => String(process.env.CLIENT_URL || '').split(',')[0].trim().replace(/\/+$/, '');
 
-// ---------------------------------------------------------------
-// Every customer gets their own code + invite token, created the first time it is needed
-// (so customers who signed up before this feature existed get one too).
-// ---------------------------------------------------------------
 const ensureReferralIdentity = async (userOrId) => {
   const user = typeof userOrId === 'object' && userOrId.save ? userOrId : await User.findById(userOrId);
   if (!user) throw createError(MESSAGES.USER.USER_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.USER_NOT_FOUND);
@@ -64,28 +48,24 @@ const ensureReferralIdentity = async (userOrId) => {
     if (!user.referralToken) set.referralToken = crypto.randomBytes(8).toString('hex');
 
     try {
-      // only fills what is still empty, so two requests at once cannot overwrite each other
       const updated = await User.findOneAndUpdate(
         {
           _id: user._id,
-          ...(set.referralCode ? { referralCode: null } : {}), // null also matches "field missing"
+          ...(set.referralCode ? { referralCode: null } : {}),
           ...(set.referralToken ? { referralToken: null } : {}),
         },
         { $set: set },
         { returnDocument: 'after' }
       );
       if (updated) return updated;
-      return await User.findById(user._id); // somebody else filled it in the meantime
+      return await User.findById(user._id);
     } catch (err) {
-      if (err.code !== 11000) throw err; // a code collided with another customer: try a new one
+      if (err.code !== 11000) throw err;
     }
   }
   throw createError(MESSAGES.COMMON.SOMETHING_WENT_WRONG, STATUS.SERVER_ERROR);
 };
 
-// ---------------------------------------------------------------
-// Find the customer behind a code OR an invite token. Returns null when it is not valid.
-// ---------------------------------------------------------------
 const resolveReferrer = async (ref) => {
   const value = typeof ref === 'string' ? ref.trim() : '';
   if (!value || value.length > 40) return null;
@@ -97,14 +77,13 @@ const resolveReferrer = async (ref) => {
   });
 };
 
-// Public: the signup page checks a code / link before the user submits
+// Validate referral
 const validateReferral = async (ref) => {
   const referrer = await resolveReferrer(ref);
   if (!referrer) return { valid: false };
   return { valid: true, referrerName: referrer.username };
 };
 
-// Used by signup: a typed code that does not exist is an error the user can fix
 const requireReferrer = async (ref) => {
   const referrer = await resolveReferrer(ref);
   if (!referrer) {
@@ -113,10 +92,7 @@ const requireReferrer = async (ref) => {
   return referrer;
 };
 
-// ---------------------------------------------------------------
-// The friend's offer: is this customer allowed it, and how much is it for this cart?
-// Allowed = programme is on + signed up with a referral + has no earlier (non-cancelled) order.
-// ---------------------------------------------------------------
+// Referral eligibility
 const getEligibility = async (userId) => {
   const settings = await ReferralSetting.getSettings();
   const base = {
@@ -136,7 +112,6 @@ const getEligibility = async (userId) => {
   return { ...base, eligible: true, discount: settings.referredDiscount, reward: settings.referrerReward };
 };
 
-// For checkout: `base` = the cart value after product / category offers.
 const resolveReferralDiscount = async (userId, base) => {
   const info = await getEligibility(userId);
   const amount = Math.max(Number(base) || 0, 0);
@@ -165,10 +140,6 @@ const resolveReferralDiscount = async (userId, base) => {
   };
 };
 
-// ---------------------------------------------------------------
-// The referrer is paid when the friend's first order is DELIVERED.
-// The wallet idempotency key makes sure one friend can never pay out twice.
-// ---------------------------------------------------------------
 const rewardReferrerForOrder = async (order) => {
   if (!order || !(order.referralDiscount > 0) || !(order.referralReward > 0)) return null;
 
@@ -184,9 +155,7 @@ const rewardReferrerForOrder = async (order) => {
   });
 };
 
-// ---------------------------------------------------------------
-// Account overview card: code, invite link, programme rules and the three counters
-// ---------------------------------------------------------------
+// My referral
 const getMyReferral = async (userId) => {
   const user = await ensureReferralIdentity(userId);
   const [program, friendsInvited, rewardRows, referrer] = await Promise.all([
@@ -213,9 +182,6 @@ const getMyReferral = async (userId) => {
   };
 };
 
-// ---------------------------------------------------------------
-// Admin: edit the programme + a small overview
-// ---------------------------------------------------------------
 const toMoney = (value, field) => {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0 || n > 100000) {

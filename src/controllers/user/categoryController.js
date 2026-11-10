@@ -3,7 +3,7 @@ const categoryService =
   require('../../services/user/categoryService');
 
 
-// GET /api/categories
+// Get categories
 const getCategories = async (req, res) => {
   const data =
     await categoryService.getCategories();

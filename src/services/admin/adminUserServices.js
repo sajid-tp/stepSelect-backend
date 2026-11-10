@@ -1,4 +1,3 @@
-// src/services/adminUserService.js
 const User = require('../../models/user');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
@@ -14,18 +13,16 @@ const SORT_MAP = {
   email_desc: { email: -1 },
 };
 
-// 1. Get Paginated, Filtered & Sorted Users
+// Get users
 const getUsers = async ({ search, page = 1, limit = 10, sort, status }) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.max(parseInt(limit, 10) || 10, 1);
 
   const filter = { isVerified: true };
 
-  // Status filtering (all | active | blocked)
   if (status === 'active') filter.isBlocked = false;
   if (status === 'blocked') filter.isBlocked = true;
 
-  // Search filtering (special characters are escaped so "a+b" or "(" can't break the regex)
   const searchText = (search || '').trim();
   if (searchText) {
     const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -34,7 +31,6 @@ const getUsers = async ({ search, page = 1, limit = 10, sort, status }) => {
   }
 
   
-  // Count total matches (after search + status filter) and all verified customers (for the header)
   const totalResults = await User.countDocuments(filter);
   const totalCustomers = await User.countDocuments({ isVerified: true });
   const totalPages = Math.ceil(totalResults / limitNum) || 1;
@@ -43,7 +39,7 @@ const getUsers = async ({ search, page = 1, limit = 10, sort, status }) => {
   const users = await User.find(filter)
     .select('username email createdAt isBlocked')
     .sort({ ...(SORT_MAP[sort] || SORT_MAP.name_asc), _id: -1 })
-    .collation({ locale: 'en', strength: 2 }) // case-insensitive A-Z
+    .collation({ locale: 'en', strength: 2 })
     .skip((pageNum - 1) * limitNum)
     .limit(limitNum);
 
@@ -67,7 +63,7 @@ const getUsers = async ({ search, page = 1, limit = 10, sort, status }) => {
   };
 };
 
-// 2. Toggle User Block Status
+// User status
 const toggleUserStatus = async (userId) => {
   const existingUser = await User.findById(userId);
 

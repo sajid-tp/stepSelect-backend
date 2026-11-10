@@ -1,23 +1,5 @@
-// src/utils/xlsxWriter.js
-// Tiny .xlsx writer with no extra packages (only Node's built-in zlib).
-// An .xlsx file is a zip of a few XML files, so this builds those files and zips them.
-//
-// buildXlsx({
-//   sheets: [{
-//     name: 'Summary',
-//     widths: [24, 16],                       // column widths (optional)
-//     rows: [
-//       [{ v: 'Sales report', s: 'title' }],
-//       [{ v: 'Revenue', s: 'bold' }, { v: 1200.5, s: 'money' }],
-//       ['plain text', 42],                   // plain strings / numbers work too
-//     ],
-//   }],
-// }) -> Buffer
-//
-// Cell styles: title | header | bold | money | int | text (default)
 const zlib = require('zlib');
 
-/* ---------- zip (store the entries deflated) ---------- */
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
   for (let n = 0; n < 256; n += 1) {
@@ -47,11 +29,11 @@ const zip = (files) => {
 
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4); // version needed
-    local.writeUInt16LE(0x0800, 6); // utf-8 file names
-    local.writeUInt16LE(8, 8); // deflate
-    local.writeUInt16LE(0, 10); // time
-    local.writeUInt16LE(0x21, 12); // date (1980-01-01)
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0x21, 12);
     local.writeUInt32LE(crc, 14);
     local.writeUInt32LE(packed.length, 18);
     local.writeUInt32LE(data.length, 22);
@@ -88,15 +70,12 @@ const zip = (files) => {
   return Buffer.concat([...parts, centralBuf, end]);
 };
 
-/* ---------- xml helpers ---------- */
 const esc = (value) =>
   String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    // characters XML 1.0 does not allow
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
 
 const colName = (index) => {
@@ -110,7 +89,6 @@ const colName = (index) => {
   return name;
 };
 
-// style name -> index in styles.xml (cellXfs)
 const STYLE_INDEX = { text: 0, title: 1, header: 2, bold: 3, money: 4, int: 5 };
 
 const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -169,7 +147,6 @@ const sheetXml = ({ rows = [], widths = [] }) => {
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${cols}<sheetData>${body}</sheetData></worksheet>`;
 };
 
-// Sheet names: max 31 chars, none of  : \ / ? * [ ]
 const safeSheetName = (name, index) =>
   String(name || `Sheet${index + 1}`).replace(/[:\\/?*[\]]/g, ' ').slice(0, 31);
 

@@ -19,6 +19,7 @@ const SORT_MAP = {
 };
 
 
+// Get products
 const getProducts = async ({
   search,
   page = 1,
@@ -148,6 +149,7 @@ const getProducts = async ({
 
 
 
+// Get product
 const getProduct = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
@@ -218,6 +220,7 @@ const getProduct = async (productId) => {
 
 
 
+// Create product
 const createProduct = async ({
   productName,
   description,
@@ -341,7 +344,6 @@ const createProduct = async ({
 
   for (const variant of variants) {
 
-    // Color
     const color = (variant.color || '').trim();
 
     if (!color) {
@@ -486,6 +488,7 @@ const createProduct = async ({
 
 
 
+// Update product
 const updateProduct = async (
   productId,
   {
@@ -655,6 +658,7 @@ const updateProduct = async (
 
 
 
+// Delete product
 const deleteProduct = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
@@ -701,6 +705,7 @@ const deleteProduct = async (productId) => {
   };
 };
 
+// Product status
 const toggleProductStatus = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {

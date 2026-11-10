@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 
-// One saved line = one colour (variant) + one size, same idea as a cart line.
 const wishlistItemSchema = new mongoose.Schema(
   {
     variantId: { type: mongoose.Schema.Types.ObjectId, ref: 'variant', required: true },
@@ -12,7 +11,6 @@ const wishlistItemSchema = new mongoose.Schema(
 
 const wishlistSchema = new mongoose.Schema(
   {
-    // One wishlist document per user
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

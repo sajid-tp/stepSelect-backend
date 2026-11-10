@@ -1,11 +1,3 @@
-// src/services/payment/paymentAttempts.js
-// Counting the payment attempts of ONE order. Every change is a single atomic database update that
-// only matches while it is still allowed, so the browser, the webhook, the worker and a double click
-// can all report the same thing at the same time and the count is still right.
-//
-//   startAttempt   -> a payment window is about to open (attempt 1..4). Refused when no attempt is left.
-//   recordFailure  -> the open attempt failed. The 4th failure closes the order as "Payment failed".
-//   settleStale    -> an attempt nobody finished (tab closed) is counted as failed after a few minutes.
 const Order = require('../../models/order');
 const { ORDER_STATUS, PAYMENT_STATUS, unpaidOnlineFilter } = require('../../constants/orderConstants');
 const { releaseUnpaidOrder } = require('./unpaidOrders');
@@ -19,8 +11,6 @@ const {
 
 const cleanReason = (reason) => String(reason || 'Payment failed').slice(0, 200);
 
-// Opens attempt number (attempts + 1). Returns the updated order, or null when it is not allowed
-// (order closed, all attempts used, or another attempt is still running).
 const startAttempt = async (orderId, patch = {}) =>
   Order.findOneAndUpdate(
     {
@@ -43,8 +33,6 @@ const startAttempt = async (orderId, patch = {}) =>
     { new: true }
   );
 
-// The open attempt failed. Safe to call twice for the same failure (browser + webhook): the second call
-// finds no open attempt, or the payment id is already known, and changes nothing.
 const recordFailure = async (orderId, reason, paymentId = null, { failedAt = new Date() } = {}) => {
   const pid = paymentId ? String(paymentId) : null;
 
@@ -75,9 +63,8 @@ const recordFailure = async (orderId, reason, paymentId = null, { failedAt = new
     { new: true }
   );
 
-  if (!claimed) return Order.findById(orderId); // already counted, paid, or closed
+  if (!claimed) return Order.findById(orderId);
 
-  // The last attempt failed: nothing left to try, close the order as "Payment failed" and restock
   if ((claimed.payment?.attempts || 0) >= maxAttempts()) {
     await releaseUnpaidOrder(claimed, RELEASE_REASON.EXHAUSTED);
     return Order.findById(orderId);
@@ -85,8 +72,6 @@ const recordFailure = async (orderId, reason, paymentId = null, { failedAt = new
   return claimed;
 };
 
-// An attempt that was started but never finished (the customer closed the tab) counts as failed once its
-// window is over. The failure time is the end of that window, so the cool-down is fair.
 const settleStaleAttempt = async (order) => {
   if (
     !order ||
@@ -101,7 +86,6 @@ const settleStaleAttempt = async (order) => {
   return recordFailure(order._id, 'The payment was not completed', null, { failedAt: deadline });
 };
 
-// Worker job: settle every stale attempt
 const sweepStaleAttempts = async () => {
   const orders = await Order.find({
     status: ORDER_STATUS.PENDING,

@@ -1,4 +1,3 @@
-// src/services/profileService.js
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const User = require('../../models/user');
@@ -15,6 +14,7 @@ const OTP_TTL_MS = 5 * 60 * 1000;
 const otpCreatedAt = (doc) => doc.createdAt || doc._id.getTimestamp();
 
 
+// Get profile
 const getProfile = async (userId) => {
   const user = await User.findById(userId).select(
     'username email profileImage phoneNumber googleId password'
@@ -36,6 +36,7 @@ const getProfile = async (userId) => {
 
 
 
+// Update image
 const updateProfileImage = async (userId, file) => {
   const fileStr = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 
@@ -57,8 +58,6 @@ const updateProfileImage = async (userId, file) => {
 };
 
 
-// Only images we uploaded ourselves live in this Cloudinary folder.
-// Google profile pictures and anything else are never touched on Cloudinary.
 const CLOUDINARY_PROFILE_FOLDER = 'stepSelect/profile_pictures/';
 
 const getCloudinaryPublicId = (url) => {
@@ -68,6 +67,7 @@ const getCloudinaryPublicId = (url) => {
   return publicId && publicId.startsWith(CLOUDINARY_PROFILE_FOLDER) ? publicId : null;
 };
 
+// Remove image
 const removeProfileImage = async (userId) => {
   const user = await User.findById(userId);
   if (!user) {
@@ -76,13 +76,9 @@ const removeProfileImage = async (userId) => {
 
   const publicId = getCloudinaryPublicId(user.profileImage);
 
-  // Clear it in the database first: this is what the user sees.
-  // An empty string (not unset) so the client's merge picks the change up.
   user.profileImage = '';
   await user.save({ validateModifiedOnly: true });
 
-  // Then clean up Cloudinary on a best-effort basis; a failure here must
-  // never make the removal look like it failed.
   if (publicId) {
     try {
       await cloudinary.uploader.destroy(publicId);
@@ -100,6 +96,7 @@ const removeProfileImage = async (userId) => {
   };
 };
 
+// Update profile
 const updateProfile = async (userId, { username, phoneNumber }) => {
   const updatedUser = await User.findByIdAndUpdate(
     userId,
@@ -115,6 +112,7 @@ const updateProfile = async (userId, { username, phoneNumber }) => {
 };
 
 
+// Email change OTP
 const requestEmailChangeOtp = async (userId, newEmail) => {
   const currentUser = await User.findById(userId);
   if (!currentUser) {
@@ -158,6 +156,7 @@ const requestEmailChangeOtp = async (userId, newEmail) => {
 };
 
 
+// Verify email
 const verifyAndChangeEmail = async (userId, otpValue) => {
 
   
@@ -204,7 +203,6 @@ if (currentUser.googleId) {
       { new: true }
     ).select('-password');
   } catch (err) {
-    // 11000 = unique email index: another account took this email in the meantime
     if (err.code === 11000) {
       throw createError(MESSAGES.USER.EMAIL_IS_ALREADY_IN_USE_BY_ANOTHER_ACCOUNT, STATUS.BAD_REQUEST);
     }
@@ -217,13 +215,13 @@ if (currentUser.googleId) {
 };
 
 
+// Change password
 const changePassword = async (userId, currentPassword, newPassword) => {
   const user = await User.findById(userId);
   if (!user) {
     throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
   }
 
-  // Google accounts have no password: reject first, before bcrypt is ever called
   if (user.googleId || !user.password) {
     throw createError(
       MESSAGES.USER.PASSWORD_CHANGES_ARE_UNAVAILABLE_FOR_GOOGLE_LINKED_ACCOUNTS,

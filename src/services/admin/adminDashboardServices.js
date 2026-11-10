@@ -1,7 +1,3 @@
-// src/services/admin/adminDashboardServices.js
-// Data for the admin dashboard: totals, the sales chart and the best sellers
-// (products, categories, brands). It uses the same rules and the same date filters
-// as the Sales Report (see adminSalesReportServices.js), so both pages always agree.
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
 const Product = require('../../models/products');
@@ -21,8 +17,6 @@ const {
 
 const TOP_LIMIT = 10;
 
-// Units that really stayed sold (not cancelled, not returned) and the money they brought in
-// (after offers and the item's share of coupon / referral discounts).
 const soldItemStages = (orderIds) => [
   { $match: { orderId: { $in: orderIds }, status: { $ne: ITEM_STATUS.CANCELLED } } },
   {
@@ -79,7 +73,6 @@ const topProducts = async (orderIds) => {
   return rows.map((r) => ({ id: String(r._id), name: r.name, image: r.image || null, units: r.units, revenue: round2(r.revenue) }));
 };
 
-// Group by a field of the product (categoryId / brandId) and read the name from its own collection
 const topByProductField = async (orderIds, field, Model, nameField, fallback) => {
   const rows = await OrderItem.aggregate([
     ...soldItemStages(orderIds),
@@ -95,12 +88,12 @@ const topByProductField = async (orderIds, field, Model, nameField, fallback) =>
   return rows.map((r) => ({ id: r._id ? String(r._id) : fallback, name: r.name, units: r.units, revenue: round2(r.revenue) }));
 };
 
-// Add each row's share of the biggest one, so the screen can draw bars
 const withShare = (rows) => {
   const max = rows.length ? rows[0].units : 0;
   return rows.map((r) => ({ ...r, percentOfTop: max ? Math.round((r.units / max) * 100) : 0 }));
 };
 
+// Get dashboard
 const getDashboard = async ({ period, from, to } = {}) => {
   const range = resolveRange({ period, from, to });
   const buckets = buildBuckets(range.start, range.end, range.unit);
@@ -121,7 +114,6 @@ const getDashboard = async ({ period, from, to } = {}) => {
       User.countDocuments({ createdAt: { $gte: range.start, $lt: range.end } }),
     ]);
 
-  // Units sold in the period = what the best-seller queries would add up to; count them directly
   const [unitsRow] = orderIds.length
     ? await OrderItem.aggregate([...soldItemStages(orderIds), { $group: { _id: null, units: { $sum: '$units' } } }])
     : [];

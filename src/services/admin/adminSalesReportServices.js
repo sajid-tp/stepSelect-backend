@@ -1,9 +1,3 @@
-// src/services/admin/adminSalesReportServices.js
-// Everything the admin "Sales Report" page needs: totals, discounts, a trend line,
-// sales by category and the list of orders. The export (PDF / Excel) uses the same data.
-//
-// What counts as a sale: an order that is not cancelled and (for online payments) was really paid.
-// This is the same rule the admin orders list uses to hide unpaid online orders.
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
 const Product = require('../../models/products');
@@ -14,14 +8,10 @@ const STATUS = require('../../constants/statusCodes');
 const { ORDER_STATUS, ITEM_STATUS, unpaidOnlineFilter } = require('../../constants/orderConstants');
 const { escapeRegex } = require('../../utils/orderHelpers');
 
-/* ------------------------------------------------------------------ */
-/* Dates. Report days are calendar days in India (IST, UTC+05:30, no daylight saving),
-   so "Today" means the same thing no matter where the server runs.                    */
-/* ------------------------------------------------------------------ */
 const REPORT_TIMEZONE = 'Asia/Kolkata';
 const OFFSET_MINUTES = 330;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_CUSTOM_DAYS = 1100; // about 3 years
+const MAX_CUSTOM_DAYS = 1100;
 const EXPORT_ROW_LIMIT = 20000;
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
@@ -38,16 +28,13 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-// A Date moved by the IST offset, so the UTC getters read as IST wall-clock time
 const toIst = (date) => new Date(date.getTime() + OFFSET_MINUTES * 60000);
 const ymd = (date) => toIst(date).toISOString().slice(0, 10);
 
-// "2026-10-30" -> the real instant that IST day starts
 const dayStart = (ymdText) => new Date(new Date(`${ymdText}T00:00:00.000Z`).getTime() - OFFSET_MINUTES * 60000);
 
 const isYmd = (text) => /^\d{4}-\d{2}-\d{2}$/.test(String(text || '')) && !isNaN(new Date(`${text}T00:00:00.000Z`));
 
-// Turns { period, from, to } into [start, end) plus the matching "previous period" of the same length
 const resolveRange = ({ period, from, to } = {}) => {
   const chosen = period || 'daily';
   if (!PERIODS.includes(chosen)) {
@@ -99,13 +86,9 @@ const resolveRange = ({ period, from, to } = {}) => {
   };
 };
 
-/* ------------------------------------------------------------------ */
-/* Buckets for the "Sales over time" line                              */
-/* ------------------------------------------------------------------ */
 const pad = (n) => String(n).padStart(2, '0');
 const hourLabel = (h) => `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? 'AM' : 'PM'}`;
 
-// All bucket keys + labels between start and end (in IST)
 const buildBuckets = (start, end, unit) => {
   const buckets = [];
   if (unit === 'hour') {
@@ -143,10 +126,6 @@ const buildBuckets = (start, end, unit) => {
 
 const BUCKET_FORMAT = { hour: '%Y-%m-%d %H', day: '%Y-%m-%d', month: '%Y-%m' };
 
-/* ------------------------------------------------------------------ */
-/* Queries                                                             */
-/* ------------------------------------------------------------------ */
-// Orders that count as sales in [start, end)
 const salesMatch = (start, end) => ({
   createdAt: { $gte: start, $lt: end },
   status: { $ne: ORDER_STATUS.CANCELLED },
@@ -219,8 +198,6 @@ const getCouponUsage = async (start, end) => {
   return rows.map((r) => ({ code: r._id, orders: r.orders, amount: round2(r.amount) }));
 };
 
-// Sales by category: each item's money after offers and its share of coupon / referral discounts,
-// minus any units cancelled. (Returns are not taken off here.)
 const getCategorySales = async (start, end) => {
   const orderIds = await Order.distinct('_id', salesMatch(start, end));
   if (orderIds.length === 0) return [];
@@ -256,7 +233,6 @@ const getCategorySales = async (start, end) => {
   const total = positive.reduce((sum, r) => sum + r.amount, 0);
   if (total <= 0) return [];
 
-  // Show the top 4 categories and put the rest together as "Others"
   const top = positive.slice(0, 4);
   const rest = positive.slice(4).reduce((sum, r) => sum + r.amount, 0);
   const list = top.map((r) => ({ name: r.name, amount: round2(r.amount) }));
@@ -265,7 +241,6 @@ const getCategorySales = async (start, end) => {
   return list.map((c) => ({ ...c, percent: Math.round((c.amount / total) * 1000) / 10 }));
 };
 
-// Rows for the table (and for the exports)
 const toRow = (order, itemCount) => ({
   id: String(order._id),
   orderNumber: order.orderNumber,
@@ -302,15 +277,12 @@ const searchFilter = async (search) => {
   return { $or: [{ orderNumber: regex }, { userId: { $in: users.map((u) => u._id) } }] };
 };
 
-// % change against the previous period. null = nothing to compare with.
 const percentChange = (current, previous) => {
   if (!previous) return current ? null : 0;
   return Math.round(((current - previous) / previous) * 1000) / 10;
 };
 
-/* ------------------------------------------------------------------ */
-/* 1. The report (page)                                                */
-/* ------------------------------------------------------------------ */
+// Sales report
 const getReport = async ({ period, from, to, search, page, limit } = {}) => {
   const range = resolveRange({ period, from, to });
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -357,7 +329,6 @@ const getReport = async ({ period, from, to, search, page, limit } = {}) => {
       labels: buckets.map((b) => b.label),
       revenue: series.map((s) => s.revenue),
       orders: series.map((s) => s.orders),
-      // the previous period lined up bucket by bucket (dashed line)
       previousRevenue: buckets.map((_, i) => (prevSeries[i] ? prevSeries[i].revenue : 0)),
     },
     categories,
@@ -379,9 +350,7 @@ const getReport = async ({ period, from, to, search, page, limit } = {}) => {
   };
 };
 
-/* ------------------------------------------------------------------ */
-/* 2. Everything for a download (PDF / Excel): all orders, no paging   */
-/* ------------------------------------------------------------------ */
+// Export data
 const getExportData = async ({ period, from, to, search } = {}) => {
   const range = resolveRange({ period, from, to });
   const buckets = buildBuckets(range.start, range.end, range.unit);
@@ -411,7 +380,6 @@ module.exports = {
   getExportData,
   resolveRange,
   PERIODS,
-  // shared with the dashboard
   buildBuckets,
   getSeries,
   getTotals,

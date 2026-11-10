@@ -3,6 +3,7 @@ const STATUS = require('../../constants/statusCodes');
 
 
 
+// Get brands
 const getBrands = async (req, res) => {
   const { search, page, sort, status, limit } = req.query;
 
@@ -19,6 +20,7 @@ const getBrands = async (req, res) => {
 
 
 
+// Create brand
 const createBrand = async (req, res) => {
   const {
     brandName,
@@ -37,6 +39,7 @@ const createBrand = async (req, res) => {
 
 
 
+// Update brand
 const updateBrand = async (req, res) => {
   const { brandId } = req.params;
 
@@ -60,6 +63,7 @@ const updateBrand = async (req, res) => {
 
 
 
+// Brand status
 const toggleBrandStatus = async (req, res) => {
   const { brandId } = req.params;
 
@@ -71,6 +75,7 @@ const toggleBrandStatus = async (req, res) => {
 
 
 
+// Delete brand
 const deleteBrand = async (req, res) => {
   const { brandId } = req.params;
 

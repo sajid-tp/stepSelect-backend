@@ -15,7 +15,7 @@ const addressSchema = new mongoose.Schema(
     addressType: {
       type: String,
       trim: true,
-      default: 'Home', // e.g., Home, Office
+      default: 'Home',
     },
     detailedAddress: {
       type: String,

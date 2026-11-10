@@ -1,8 +1,7 @@
-// src/controllers/admin/userController.js
 const adminUserService = require('../../services/admin/adminUserServices');
 const STATUS = require('../../constants/statusCodes');
 
-// GET /api/admin/users
+// Get users
 const getUsers = async (req, res) => {
   const { status, search, page, sort } = req.query;
 
@@ -17,7 +16,7 @@ const getUsers = async (req, res) => {
   return res.status(STATUS.OK).json(data);
 };
 
-// PATCH /api/admin/users/:userId/status (or /:userId)
+// User status
 const toggleUserStatus = async (req, res) => {
   const { userId } = req.params;
 

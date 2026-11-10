@@ -13,15 +13,11 @@ const isObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(value);
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// A category/brand is visible to shoppers only if it is active and not deleted.
 const isVisible = (doc) => Boolean(doc && doc.isActive && !doc.deletedAt);
 
-// Ids of every active (non-blocked, non-deleted) document of a model.
 const getActiveIds = (Model) =>
   Model.find({ isActive: true, deletedAt: null }).distinct('_id');
 
-// Resolves a comma separated list of ids and/or names into ids,
-// keeping ONLY documents that are active and not deleted.
 const resolveIds = async (rawValue, Model, nameField) => {
   const values = rawValue
     .split(',')
@@ -55,6 +51,7 @@ const resolveIds = async (rawValue, Model, nameField) => {
   return docs.map((doc) => doc._id);
 };
 
+// Get products
 const getProducts = async ({
   search,
   category,
@@ -115,9 +112,6 @@ const getProducts = async ({
 
   const filter = { isActive: true, deletedAt: null };
 
-  // Always restrict to products whose category AND brand are active.
-  // If a category/brand query param is given below, it overwrites these
-  // with ids that have already been validated as active.
   const [activeCategoryIds, activeBrandIds] = await Promise.all([
     getActiveIds(Category),
     getActiveIds(Brand),
@@ -225,7 +219,6 @@ const getProducts = async ({
   const totalResults = result.total[0]?.count || 0;
   const totalPages = Math.ceil(totalResults / limitNum);
 
-  // Product / category offers: the shopper gets the larger of the two
   const offerMap = await getOfferMap(
     result.items.map((item) => ({ productId: item.id, categoryId: item.categoryId }))
   );
@@ -245,6 +238,7 @@ const getProducts = async ({
   };
 };
 
+// Get product
 const getProduct = async (productId) => {
   if (!mongoose.Types.ObjectId.isValid(productId)) {
     throw createError(MESSAGES.PRODUCT.INVALID_PRODUCT_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_PRODUCT_ID);
@@ -263,8 +257,6 @@ const getProduct = async (productId) => {
     throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
   }
 
-  // Hide products whose category or brand is blocked/deleted.
-  // 404 (not a "blocked" message) so we don't reveal the product exists.
   if (!isVisible(product.categoryId) || !isVisible(product.brandId)) {
     throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
   }
@@ -315,6 +307,7 @@ const getProduct = async (productId) => {
   };
 };
 
+// Related products
 const getRelatedProducts = async (productId, limit = 4) => {
   if (!isObjectId(String(productId))) {
     throw createError(MESSAGES.PRODUCT.INVALID_PRODUCT_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_PRODUCT_ID);
@@ -336,12 +329,10 @@ const getRelatedProducts = async (productId, limit = 4) => {
     throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
   }
 
-  // If the current product's category/brand is blocked, treat it as not found.
   if (!isVisible(current.categoryId) || !isVisible(current.brandId)) {
     throw createError(MESSAGES.PRODUCT.PRODUCT_NOT_FOUND, STATUS.NOT_FOUND, ERROR_CODES.PRODUCT_NOT_FOUND);
   }
 
-  // Related products must also belong to an active brand.
   const activeBrandIds = await getActiveIds(Brand);
 
   const products = await Product.find({
@@ -372,7 +363,6 @@ const getRelatedProducts = async (productId, limit = 4) => {
     if (!firstVariant.has(String(v.productId))) firstVariant.set(String(v.productId), v);
   });
 
-  // every related product is in the same category as the current one
   const offerMap = await getOfferMap(
     products.map((p) => ({ productId: p._id, categoryId: current.categoryId._id }))
   );
@@ -387,7 +377,6 @@ const getRelatedProducts = async (productId, limit = 4) => {
         return {
           id: String(p._id),
           name: p.productName,
-          // fixed: populated field is brandName, not name
           brand: p.brandId ? { id: String(p.brandId._id), name: p.brandId.brandName } : null,
           images: (v.images || [])
             .map((image) => (typeof image === 'string' ? image : image?.url))

@@ -8,6 +8,4 @@ router.post('/:productId/variants', protect("admin"), addVariant);
 router.patch('/:variantId',protect("admin"), updateVariant);
 router.delete('/:variantId',protect("admin"),deleteVariant);
 
-// router.patch('/:variantId/status',protect("admin"),toggleVariantStatus);
-
 module.exports = router;

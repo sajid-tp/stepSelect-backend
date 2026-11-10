@@ -1,5 +1,3 @@
-// src/services/admin/adminBannerServices.js
-// Banner management for the admin panel + the list the landing page reads.
 const Banner = require('../../models/banner');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
@@ -22,7 +20,6 @@ const toView = (b) => ({
   updatedAt: b.updatedAt,
 });
 
-/* ---------------- validation ---------------- */
 const cleanTitle = (value) => String(value || '').trim().replace(/\s+/g, ' ');
 
 const validateTitle = (title) => {
@@ -31,7 +28,6 @@ const validateTitle = (title) => {
   if (title.length > TITLE_MAX) throw createError(`Banner title cannot exceed ${TITLE_MAX} characters.`, STATUS.BAD_REQUEST);
 };
 
-// "" is fine. Otherwise a path inside the shop (/shop?...) or a full http(s) link.
 const cleanLink = (value) => {
   const link = String(value || '').trim();
   if (!link) return '';
@@ -41,7 +37,6 @@ const cleanLink = (value) => {
     const url = new URL(link);
     if (['http:', 'https:'].includes(url.protocol)) return link;
   } catch {
-    /* falls through to the error below */
   }
   throw createError('Enter a valid link, like /shop or https://example.com.', STATUS.BAD_REQUEST);
 };
@@ -55,7 +50,6 @@ const cleanOrder = (value, fallback) => {
   return n;
 };
 
-// multipart bodies send everything as text
 const toBool = (value, fallback) => {
   if (value === undefined || value === null || value === '') return fallback;
   return value === true || value === 'true' || value === '1';
@@ -68,7 +62,7 @@ const findBanner = async (bannerId) => {
   return banner;
 };
 
-/* ---------------- 1. list ---------------- */
+// Get banners
 const getBanners = async ({ search, status, page, limit } = {}) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_LIMIT, 1), MAX_LIMIT);
@@ -99,14 +93,13 @@ const getBanners = async ({ search, status, page, limit } = {}) => {
   };
 };
 
-/* ---------------- 2. create ---------------- */
+// Create banner
 const createBanner = async (body = {}, file) => {
   const title = cleanTitle(body.title);
   validateTitle(title);
   const link = cleanLink(body.link);
   if (!file) throw createError('Please choose a banner image.', STATUS.BAD_REQUEST);
 
-  // No slot given: put the new banner at the end of the slider
   const last = await Banner.findOne({ deletedAt: null }).sort({ displayOrder: -1 }).select('displayOrder');
   const displayOrder = cleanOrder(body.displayOrder, Math.min(((last && last.displayOrder) || 0) + 1, 99));
 
@@ -122,7 +115,7 @@ const createBanner = async (body = {}, file) => {
   return toView(banner);
 };
 
-/* ---------------- 3. edit (the picture is optional) ---------------- */
+// Update banner
 const updateBanner = async (bannerId, body = {}, file) => {
   const banner = await findBanner(bannerId);
 
@@ -140,7 +133,7 @@ const updateBanner = async (bannerId, body = {}, file) => {
   return toView(banner);
 };
 
-/* ---------------- 4. show / hide ---------------- */
+// Banner status
 const toggleBannerStatus = async (bannerId, isActive) => {
   const banner = await findBanner(bannerId);
   banner.isActive = isActive === undefined ? !banner.isActive : toBool(isActive, banner.isActive);
@@ -148,7 +141,7 @@ const toggleBannerStatus = async (bannerId, isActive) => {
   return toView(banner);
 };
 
-/* ---------------- 5. delete (soft) ---------------- */
+// Delete banner
 const deleteBanner = async (bannerId) => {
   const banner = await findBanner(bannerId);
   banner.deletedAt = new Date();
@@ -157,7 +150,7 @@ const deleteBanner = async (bannerId) => {
   return { id: String(banner._id) };
 };
 
-/* ---------------- 6. landing page: only the visible banners, in slider order ---------------- */
+// Active banners
 const getActiveBanners = async () => {
   const banners = await Banner.find({ deletedAt: null, isActive: true }).sort({ displayOrder: 1, createdAt: -1 });
   return banners.map((b) => ({ id: String(b._id), title: b.title, image: b.image, link: b.link || '', displayOrder: b.displayOrder }));

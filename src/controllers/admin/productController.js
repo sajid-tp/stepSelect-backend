@@ -2,6 +2,7 @@ const adminProductService = require('../../services/admin/adminProductServices')
 const STATUS = require('../../constants/statusCodes');
 
 
+// Get products
 const getProducts = async (req, res) => {
   const {
     search,
@@ -21,6 +22,7 @@ const getProducts = async (req, res) => {
   return res.status(STATUS.OK).json(data);
 };
 
+// Get product
 const getProduct = async (req, res) => {
   const { productId } = req.params;
 
@@ -32,6 +34,7 @@ const getProduct = async (req, res) => {
 };
 
 
+// Create product
 const createProduct = async (req, res) => {
   const {
     productName,
@@ -57,6 +60,7 @@ const createProduct = async (req, res) => {
 };
 
 
+// Update product
 const updateProduct = async (req, res) => {
   const { productId } = req.params;
 
@@ -85,6 +89,7 @@ const updateProduct = async (req, res) => {
 };
 
 
+// Delete product
 const deleteProduct = async (req, res) => {
   const { productId } = req.params;
 
@@ -97,6 +102,7 @@ const deleteProduct = async (req, res) => {
 
 
 
+// Product status
 const toggleProductStatus = async (req, res) => {
   const { productId } = req.params;
 
