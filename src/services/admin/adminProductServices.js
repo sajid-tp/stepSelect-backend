@@ -19,7 +19,6 @@ const SORT_MAP = {
 };
 
 
-// Get products
 const getProducts = async ({
   search,
   page = 1,
@@ -44,8 +43,20 @@ const getProducts = async ({
 
   const searchText = (search || '').trim();
   if (searchText) {
+    // Escape regex characters so searches like "a+b" or "(" can't break the query
     const escaped = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    filter.categoryName = { $regex: escaped, $options: 'i' };
+    const regex = { $regex: escaped, $options: 'i' };
+
+    // Products have no category/brand *name* field (they store ids), so look the
+    // brand up first, then match on the product name OR the brand.
+    const brands = await Brand.find({ deletedAt: null, brandName: regex })
+      .select('_id')
+      .lean();
+
+    filter.$or = [
+      { productName: regex },
+      { brandId: { $in: brands.map((brand) => brand._id) } },
+    ];
   }
 
   if (status === 'active') {
@@ -149,7 +160,6 @@ const getProducts = async ({
 
 
 
-// Get product
 const getProduct = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
@@ -220,7 +230,6 @@ const getProduct = async (productId) => {
 
 
 
-// Create product
 const createProduct = async ({
   productName,
   description,
@@ -344,6 +353,7 @@ const createProduct = async ({
 
   for (const variant of variants) {
 
+    // Color
     const color = (variant.color || '').trim();
 
     if (!color) {
@@ -488,7 +498,6 @@ const createProduct = async ({
 
 
 
-// Update product
 const updateProduct = async (
   productId,
   {
@@ -521,13 +530,7 @@ const updateProduct = async (
     );
   }
 
-  if (!existingProduct.isActive) {
-    throw createError(
-      MESSAGES.PRODUCT.CANNOT_EDIT_AN_INACTIVE_PRODUCT,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.PRODUCT_INACTIVE
-    );
-  }
+  // Inactive products can be edited too (the admin may fix a product before switching it back on).
 
   const name =  productName.trim() || '';
 
@@ -606,7 +609,8 @@ const updateProduct = async (
     );
   }
 
-  if (!category.isActive) {
+  // Only block *choosing* an inactive category; keeping the product's current one is fine.
+  if (!category.isActive && String(existingProduct.categoryId) !== String(categoryId)) {
     throw createError(
       MESSAGES.PRODUCT.CANNOT_ASSIGN_AN_INACTIVE_CATEGORY_TO_A_PRODUCT,
       STATUS.BAD_REQUEST,
@@ -627,7 +631,8 @@ const updateProduct = async (
     );
   }
 
-  if (!brand.isActive) {
+  // Only block *choosing* an inactive brand; keeping the product's current one is fine.
+  if (!brand.isActive && String(existingProduct.brandId) !== String(brandId)) {
     throw createError(
       MESSAGES.PRODUCT.CANNOT_ASSIGN_AN_INACTIVE_BRAND_TO_A_PRODUCT,
       STATUS.BAD_REQUEST,
@@ -658,7 +663,6 @@ const updateProduct = async (
 
 
 
-// Delete product
 const deleteProduct = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {
@@ -705,7 +709,6 @@ const deleteProduct = async (productId) => {
   };
 };
 
-// Product status
 const toggleProductStatus = async (productId) => {
 
   if (!mongoose.Types.ObjectId.isValid(productId)) {

@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 const Coupon = require('../../models/coupon');
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
-const { MAX_DISCOUNT_PERCENT, MIN_PERCENT, CODE_MIN, CODE_MAX, CODE_REGEX } = require('../../constants/couponConstants');
+const { COUPON_LIMITS, COUPON_CODE_REGEX } = require('../../constants/couponConstants');
+
+const formatINR = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
+const hasMaxTwoDecimals = (n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
 
 const ALLOWED_FIELDS = [
   'couponCode',
@@ -20,6 +23,7 @@ const ALLOWED_FIELDS = [
 
 const bad = (message, code) => createError(message, STATUS.BAD_REQUEST, code);
 
+// A percentage coupon must take off a whole number of percent (1 to 90). Flat coupons are not checked here.
 const validatePercentageValue = (discountType, discountValue) => {
   if (discountType !== 'percentage' || discountValue === undefined || discountValue === null) return;
   const value = Number(discountValue);
@@ -31,6 +35,7 @@ const validatePercentageValue = (discountType, discountValue) => {
   }
 };
 
+// A fixed discount must be between ₹1 and ₹25,000 (up to 2 decimal places).
 const validateFlatValue = (discountType, discountValue) => {
   if (discountType !== 'flat' || discountValue === undefined || discountValue === null) return;
   const value = Number(discountValue);
@@ -47,8 +52,6 @@ const validateFlatValue = (discountType, discountValue) => {
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const hasMaxTwoDecimals = (n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
-
 const validateCouponInput = (data, { creating = false } = {}) => {
   if (creating) {
     for (const field of ['couponCode', 'discountType', 'discountValue']) {
@@ -63,11 +66,24 @@ const validateCouponInput = (data, { creating = false } = {}) => {
       throw bad('Coupon code must be a non-empty string', 'INVALID_COUPON_CODE');
     }
     data.couponCode = data.couponCode.trim().toUpperCase();
-    if (data.couponCode.length < CODE_MIN || data.couponCode.length > CODE_MAX) {
-      throw createError(`Coupon code must be ${CODE_MIN} to ${CODE_MAX} characters`, STATUS.BAD_REQUEST, 'INVALID_COUPON_CODE');
+    const { CODE_MIN_LENGTH, CODE_MAX_LENGTH } = COUPON_LIMITS;
+    if (data.couponCode.length < CODE_MIN_LENGTH || data.couponCode.length > CODE_MAX_LENGTH) {
+      throw bad(`Coupon code must be ${CODE_MIN_LENGTH} to ${CODE_MAX_LENGTH} characters`, 'INVALID_COUPON_CODE');
     }
-    if (!CODE_REGEX.test(data.couponCode)) {
-      throw createError('Coupon code can only contain letters, numbers, hyphens and underscores', STATUS.BAD_REQUEST, 'INVALID_COUPON_CODE');
+    if (!COUPON_CODE_REGEX.test(data.couponCode)) {
+      throw bad('Coupon code can only contain letters, numbers, hyphens and underscores', 'INVALID_COUPON_CODE');
+    }
+  }
+
+  if (data.description !== undefined && data.description !== null) {
+    if (typeof data.description !== 'string') {
+      throw bad('description must be text', 'INVALID_COUPON_DESCRIPTION');
+    }
+    if (data.description.trim().length > COUPON_LIMITS.DESCRIPTION_MAX_LENGTH) {
+      throw bad(
+        `Description cannot exceed ${COUPON_LIMITS.DESCRIPTION_MAX_LENGTH} characters`,
+        'INVALID_COUPON_DESCRIPTION'
+      );
     }
   }
 
@@ -80,30 +96,37 @@ const validateCouponInput = (data, { creating = false } = {}) => {
     if (!Number.isFinite(value) || value <= 0) {
       throw bad('discountValue must be a number greater than zero', 'INVALID_DISCOUNT_VALUE');
     }
-    if (!hasMaxTwoDecimals(value)) {
-      throw createError('Discount value can have at most 2 decimal places', STATUS.BAD_REQUEST, 'INVALID_DISCOUNT_VALUE');
-    }
     data.discountValue = value;
   }
 
-  if (data.discountType === 'flat' && data.maximumDiscount != null) {
-    throw createError('maximumDiscount can only be used with percentage coupons', STATUS.BAD_REQUEST, 'INVALID_MAXIMUM_DISCOUNT');
+  const type = data.discountType;
+  const value = data.discountValue;
+  validatePercentageValue(type, value);
+  validateFlatValue(type, value);
+  if (type === 'flat' && data.maximumDiscount != null) {
+    throw bad('maximumDiscount can only be used with percentage coupons', 'INVALID_MAXIMUM_DISCOUNT');
   }
 
-  for (const field of ['maximumDiscount', 'minimumPurchase', 'redemptionLimit', 'usageLimitPerUser']) {
-    if (data[field] !== undefined && data[field] !== null) {
-      const valueNum = Number(data[field]);
-      const min = field === 'redemptionLimit' || field === 'usageLimitPerUser' ? 1 : 0;
-      if (!Number.isFinite(valueNum) || valueNum < min || (['redemptionLimit', 'usageLimitPerUser'].includes(field) && !Number.isInteger(valueNum))) {
-        throw createError(`${field} must be a valid number`, STATUS.BAD_REQUEST, 'INVALID_COUPON_LIMIT');
-      }
-      if (['maximumDiscount', 'minimumPurchase'].includes(field) && !hasMaxTwoDecimals(valueNum)) {
-        throw createError(`${field === 'maximumDiscount' ? 'Maximum discount' : 'Minimum purchase'} can have at most 2 decimal places`, STATUS.BAD_REQUEST, 'INVALID_COUPON_LIMIT');
-      }
-      if (field === 'maximumDiscount' && valueNum <= 0) {
-        throw createError('maximumDiscount must be greater than zero (leave it empty for no cap)', STATUS.BAD_REQUEST, 'INVALID_MAXIMUM_DISCOUNT');
-      }
-      data[field] = valueNum;
+  // [field, label, min, max, whole number only?, is rupee amount?]
+  // max = null means "no upper limit" (only numbers JavaScript can store exactly are accepted)
+  const NUMERIC_RULES = [
+    ['maximumDiscount', 'Maximum discount cap', COUPON_LIMITS.MIN_DISCOUNT_CAP, null, false, true],
+    ['minimumPurchase', 'Minimum purchase', COUPON_LIMITS.MIN_PURCHASE_MIN, null, false, true],
+    ['redemptionLimit', 'Redemption limit', COUPON_LIMITS.MIN_REDEMPTION_LIMIT, null, true, false],
+    ['usageLimitPerUser', 'Uses per customer', COUPON_LIMITS.MIN_USES_PER_CUSTOMER, COUPON_LIMITS.MAX_USES_PER_CUSTOMER, true, false],
+  ];
+
+  for (const [field, label, min, max, wholeOnly, isMoney] of NUMERIC_RULES) {
+    if (data[field] === undefined || data[field] === null) continue;
+    const num = Number(data[field]);
+    const fmt = (n) => (isMoney ? formatINR(n) : n.toLocaleString('en-IN'));
+    if (!Number.isFinite(num) || num < min || (max !== null && num > max)) {
+      throw bad(
+        max === null
+          ? `${label} must be at least ${fmt(min)}`
+          : `${label} must be between ${fmt(min)} and ${fmt(max)}`,
+        'INVALID_COUPON_LIMIT'
+      );
     }
     if (max === null && num > Number.MAX_SAFE_INTEGER) {
       throw bad(`${label} is too large`, 'INVALID_COUPON_LIMIT');
@@ -138,19 +161,22 @@ const validateCouponInput = (data, { creating = false } = {}) => {
   }
 };
 
+// Rules that depend on several fields together. It is always run on the FINAL values
+// (existing coupon + the changes), so editing one field can't break another.
 const assertCouponRules = (c, { creating = false, usedCount = 0 } = {}) => {
   const value = Number(c.discountValue);
   const minimumPurchase = Number(c.minimumPurchase) || 0;
 
   if (c.discountType === 'percentage') {
-    if (value < MIN_PERCENT || value > MAX_DISCOUNT_PERCENT) {
+    if (value < COUPON_LIMITS.MIN_PERCENT || value > COUPON_LIMITS.MAX_PERCENT) {
       throw createError(
-        `Percentage discount must be between ${MIN_PERCENT}% and ${MAX_DISCOUNT_PERCENT}%`,
+        `Percentage discount must be between ${COUPON_LIMITS.MIN_PERCENT}% and ${COUPON_LIMITS.MAX_PERCENT}%`,
         STATUS.BAD_REQUEST,
         'INVALID_DISCOUNT_VALUE'
       );
     }
   } else if (c.discountType === 'flat') {
+    // A flat coupon with no minimum (or a minimum smaller than the discount) could make a cart free
     if (minimumPurchase <= 0) {
       throw createError(
         'A flat coupon needs a minimum purchase greater than the discount amount',
@@ -158,10 +184,10 @@ const assertCouponRules = (c, { creating = false, usedCount = 0 } = {}) => {
         'INVALID_MINIMUM_PURCHASE'
       );
     }
-    const allowed = Math.floor((minimumPurchase * MAX_DISCOUNT_PERCENT) / 100);
+    const allowed = Math.floor((minimumPurchase * COUPON_LIMITS.MAX_PERCENT) / 100);
     if (value > allowed) {
       throw createError(
-        `A flat discount can be at most ${MAX_DISCOUNT_PERCENT}% of the minimum purchase (\u20b9${allowed} for a \u20b9${minimumPurchase} minimum). Raise the minimum purchase or lower the discount`,
+        `A flat discount can be at most ${COUPON_LIMITS.MAX_PERCENT}% of the minimum purchase (\u20b9${allowed} for a \u20b9${minimumPurchase} minimum). Raise the minimum purchase or lower the discount`,
         STATUS.BAD_REQUEST,
         'INVALID_DISCOUNT_VALUE'
       );
@@ -199,7 +225,6 @@ const publicCoupon = (coupon) => ({
   updatedAt: coupon.updatedAt,
 });
 
-// Get coupons
 const getCoupons = async ({ search, status, page = 1, limit = 10, sort = 'newest' } = {}) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
@@ -250,7 +275,6 @@ const getCoupons = async ({ search, status, page = 1, limit = 10, sort = 'newest
   };
 };
 
-// Create coupon
 const createCoupon = async (payload = {}) => {
   const data = {};
   for (const field of ALLOWED_FIELDS) {
@@ -278,7 +302,6 @@ const createCoupon = async (payload = {}) => {
   }
 };
 
-// Get coupon
 const getCouponById = async (couponId) => {
   if (!mongoose.isValidObjectId(couponId)) {
     throw createError('Invalid coupon id', STATUS.BAD_REQUEST, 'INVALID_COUPON_ID');
@@ -288,7 +311,6 @@ const getCouponById = async (couponId) => {
   return { success: true, data: publicCoupon(coupon) };
 };
 
-// Update coupon
 const updateCoupon = async (couponId, payload = {}) => {
   if (!mongoose.isValidObjectId(couponId)) {
     throw createError('Invalid coupon id', STATUS.BAD_REQUEST, 'INVALID_COUPON_ID');
@@ -310,6 +332,7 @@ const updateCoupon = async (couponId, payload = {}) => {
     if (duplicate) throw createError('A coupon with this code already exists', STATUS.CONFLICT, 'COUPON_CODE_EXISTS');
   }
 
+  // Validate the resulting combination of old and new values, not just the partial payload.
   const merged = { ...coupon.toObject(), ...data };
   assertCouponRules(merged, { usedCount: coupon.usedCount });
   if (merged.discountType === 'flat' && merged.maximumDiscount != null) {
@@ -330,7 +353,6 @@ const updateCoupon = async (couponId, payload = {}) => {
   return { success: true, data: publicCoupon(coupon) };
 };
 
-// Coupon status
 const setCouponStatus = async (couponId) => {
   if (!mongoose.isValidObjectId(couponId)) {
     throw createError(
@@ -367,7 +389,6 @@ const setCouponStatus = async (couponId) => {
   };
 };
 
-// Delete coupon
 const deleteCoupon = async (couponId) => {
   if (!mongoose.isValidObjectId(couponId)) throw createError('Invalid coupon id', STATUS.BAD_REQUEST, 'INVALID_COUPON_ID');
   const coupon = await Coupon.findOneAndUpdate(

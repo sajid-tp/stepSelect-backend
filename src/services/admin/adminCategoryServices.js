@@ -1,3 +1,4 @@
+
 const Category = require('../../models/categories');
 const mongoose = require('mongoose');
 const createError = require('../../utils/createError');
@@ -6,6 +7,7 @@ const MESSAGES = require('../../constants/messages');
 const ERROR_CODES = require('../../constants/errorCodes');
 const { ICON_CLASS_LIMITS, ICON_CLASS_REGEX, NAME_LIMITS, DESCRIPTION_LIMITS } = require('../../constants/categoryConstants');
 
+// Icon class: required, 3-100 characters, letters/numbers/spaces/hyphens only. Returns the cleaned value.
 const validateIconClass = (value) => {
   const icon = String(value ?? '').trim().replace(/\s+/g, ' ');
   const { MIN_LENGTH, MAX_LENGTH } = ICON_CLASS_LIMITS;
@@ -20,7 +22,9 @@ const validateIconClass = (value) => {
 };
 
 
+// Category name: required, 2-50 characters. Returns the cleaned value (extra spaces collapsed).
 const validateCategoryName = (value) => {
+  // Anything that is not a string (object, array, number...) counts as "not provided"
   const name = (typeof value === 'string' ? value : '').trim().replace(/\s+/g, ' ');
   const { MIN_LENGTH, MAX_LENGTH } = NAME_LIMITS;
   if (!name) {
@@ -36,6 +40,7 @@ const validateCategoryName = (value) => {
 };
 
 
+// Description: optional, 500 characters at most. Returns the cleaned value ('' when left empty).
 const validateDescription = (value) => {
   if (value === undefined || value === null) return '';
   if (typeof value !== 'string') {
@@ -67,10 +72,11 @@ const formatCategory = (category) => ({
   updatedAt: category.updatedAt,
 });
 
-// Get categories
+// 1 . getCategory
 const getCategories = async ({ search, page = 1, sort, status, limit }) => {
 
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  // default 8 for the admin table; callers (e.g. dropdowns) can ask for more, capped at 100
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 8, 1), 100);
 
   const filter = { deletedAt: null };
@@ -113,7 +119,7 @@ const getCategories = async ({ search, page = 1, sort, status, limit }) => {
 
 
 
-// Create category
+// 2. createCategory
 const createCategory = async ({ categoryName, iconClass, description }) => {
   const name = validateCategoryName(categoryName);
 
@@ -142,6 +148,7 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
 
     return formatCategory(category);
   } catch (err) {
+    // 11000 = unique index error from MongoDB
     if (err.code === 11000) {
       throw createError(
         MESSAGES.CATEGORY.A_CATEGORY_WITH_THIS_NAME_ALREADY_EXISTS,
@@ -155,7 +162,7 @@ const createCategory = async ({ categoryName, iconClass, description }) => {
 
 
 
-// Update category
+// 3. Update Category
 const updateCategory = async (categoryId, { categoryName, iconClass, description }) => {
 
   if (!mongoose.Types.ObjectId.isValid(categoryId)) {
@@ -172,9 +179,7 @@ const updateCategory = async (categoryId, { categoryName, iconClass, description
     throw createError(MESSAGES.CATEGORY.CANNOT_EDIT_A_DELETED_CATEGORY, STATUS.BAD_REQUEST, ERROR_CODES.CATEGORY_DELETED);
   }
 
-  if (!existingCategory.isActive) {
-    throw createError(MESSAGES.CATEGORY.CANNOT_EDIT_AN_INACTIVE_CATEGORY, STATUS.BAD_REQUEST, ERROR_CODES.CATEGORY_INACTIVE);
-  }
+  // Inactive categories can be edited too.
 
   const name = validateCategoryName(categoryName);
 
@@ -204,7 +209,7 @@ const updateCategory = async (categoryId, { categoryName, iconClass, description
   return formatCategory(updatedCategory);
 };
 
-// Category status
+// 4. Toggle Category Active/Inactive Status
 const toggleCategoryStatus = async (categoryId) => {
   if (!mongoose.Types.ObjectId.isValid(categoryId)) {
     throw createError(MESSAGES.CATEGORY.INVALID_CATEGORY_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_CATEGORY_ID);
@@ -225,12 +230,14 @@ const toggleCategoryStatus = async (categoryId) => {
   }
 
   existingCategory.isActive = !existingCategory.isActive;
+  // Only check the field that changed. Older categories can have an empty / too-short icon class,
+  // and a full check would fail on that old value and block the status change.
   await existingCategory.save({ validateModifiedOnly: true });
 
   return formatCategory(existingCategory)
 };
 
-// Delete category
+// 5. Delete Category (soft delete)
 const deleteCategory = async (categoryId) => {
   if (!mongoose.Types.ObjectId.isValid(categoryId)) {
     throw createError(MESSAGES.CATEGORY.INVALID_CATEGORY_ID, STATUS.BAD_REQUEST, ERROR_CODES.INVALID_CATEGORY_ID);
@@ -249,6 +256,8 @@ const deleteCategory = async (categoryId) => {
   existingCategory.isActive = false;
   existingCategory.deletedAt = new Date();
 
+  // Only check the fields that changed (see toggleCategoryStatus) so an older category
+  // with an empty / too-short icon class can still be deleted.
   await existingCategory.save({ validateModifiedOnly: true });
 
   return formatCategory(existingCategory)

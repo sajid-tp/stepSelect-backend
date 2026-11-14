@@ -1,3 +1,4 @@
+// src/services/authService.js
 const User = require('../../models/user');
 const OTP = require('../../models/otp');
 const bcrypt = require('bcryptjs');
@@ -18,6 +19,7 @@ const { VALIDATION_MESSAGES } = require('../../utils/validators');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+// Internal Helper: OTP creation & dispatch
 const createAndSendOtp = async (user, type, emailSubject) => {
   
   await OTP.deleteMany({ userId: user._id, type });
@@ -42,8 +44,9 @@ const createAndSendOtp = async (user, type, emailSubject) => {
 };
 
 
-// Signup
+// referralCode is optional. It can be a referral code or the token from an invite link.
 const signup = async ({ username, email, password, referralCode, termsAccepted }) => {
+  // Check the code first, so a typo is reported before anything is created
   const referrer = referralCode ? await referralService.requireReferrer(referralCode) : null;
 
   const userExists = await User.findOne({ email });
@@ -67,6 +70,7 @@ const signup = async ({ username, email, password, referralCode, termsAccepted }
     referredBy: referrer ? referrer._id : null,
   });
 
+  // every customer gets a code + invite link of their own
   await referralService.ensureReferralIdentity(user);
 
   return {
@@ -76,20 +80,29 @@ const signup = async ({ username, email, password, referralCode, termsAccepted }
 };
 
 
-// Google login
-const googleAuth = async (token, referralCode, termsAccepted = false) => {
-  let ticket;
+// ---------------------------------------------------------------
+// Google sign-in is two steps for people who have no account yet:
+//   1. googleAuth     - verifies the Google token. Existing account -> logged in.
+//                       No account -> nothing is created; we return the Google
+//                       profile so the client can show "Complete your account".
+//   2. googleComplete - verifies the token again, checks terms + optional
+//                       referral code, then creates the account and logs in.
+// ---------------------------------------------------------------
+const verifyGoogleToken = async (token) => {
   try {
-    ticket = await client.verifyIdToken({
+    const ticket = await client.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
+    return ticket.getPayload();
   } catch (err) {
     throw createError(MESSAGES.AUTH.INVALID_GOOGLE_TOKEN, STATUS.UNAUTHORIZED);
   }
+};
 
-  const { sub: googleId, email, name, picture } = ticket.getPayload();
-
+// Finds the account for this Google user. If they signed up with email first,
+// the Google id is linked to that same account.
+const findGoogleUser = async ({ sub: googleId, email, picture }) => {
   let user = await User.findOne({ googleId });
   if (!user) {
     user = await User.findOne({ email });
@@ -97,34 +110,19 @@ const googleAuth = async (token, referralCode, termsAccepted = false) => {
       user.googleId = googleId;
       if (!user.profileImage) user.profileImage = picture;
       await user.save();
-    } else {
-      if (!termsAccepted) {
-        throw createError(VALIDATION_MESSAGES.TERMS_REQUIRED, STATUS.BAD_REQUEST);
-      }
-      const referrer = referralCode ? await referralService.resolveReferrer(referralCode) : null;
-      user = await User.create({
-        username: name,
-        email,
-        googleId,
-        profileImage: picture,
-        isVerified: true,
-        termsAccepted: true,
-        referredBy: referrer && referrer.email !== email ? referrer._id : null,
-      });
-      await referralService.ensureReferralIdentity(user);
     }
   }
+  return user;
+};
 
+const buildGoogleLoginResult = (user) => {
   if (user.isBlocked) {
     throw createError(MESSAGES.AUTH.YOUR_ACCOUNT_HAS_BEEN_BLOCKED, STATUS.FORBIDDEN);
   }
 
-  const accessToken = generateAccessToken(user._id);
-  const refreshToken = generateRefreshToken(user._id);
-
   return {
-    accessToken,
-    refreshToken,
+    accessToken: generateAccessToken(user._id),
+    refreshToken: generateRefreshToken(user._id),
     user: {
       id: user._id,
       username: user.username,
@@ -134,7 +132,53 @@ const googleAuth = async (token, referralCode, termsAccepted = false) => {
   };
 };
 
-// Login
+// Step 1: login, or "this Google account is new"
+const googleAuth = async (token) => {
+  const payload = await verifyGoogleToken(token);
+  const user = await findGoogleUser(payload);
+
+  if (!user) {
+    return {
+      isNewUser: true,
+      profile: { name: payload.name, email: payload.email, picture: payload.picture },
+    };
+  }
+
+  return buildGoogleLoginResult(user);
+};
+
+// Step 2: create the account (terms required, referral code optional)
+const googleComplete = async (token, referralCode, termsAccepted = false) => {
+  const payload = await verifyGoogleToken(token);
+
+  let user = await findGoogleUser(payload);
+  if (!user) {
+    if (!termsAccepted) {
+      throw createError(VALIDATION_MESSAGES.TERMS_REQUIRED, STATUS.BAD_REQUEST);
+    }
+
+    // A code that does not exist is an error the user can fix (same as email signup)
+    const referrer = referralCode ? await referralService.requireReferrer(referralCode) : null;
+    if (referrer && referrer.email === payload.email) {
+      throw createError(MESSAGES.REFERRAL.INVALID_REFERRAL_CODE, STATUS.BAD_REQUEST);
+    }
+
+    user = await User.create({
+      username: payload.name,
+      email: payload.email,
+      googleId: payload.sub,
+      profileImage: payload.picture,
+      isVerified: true,
+      termsAccepted: true,
+      referredBy: referrer ? referrer._id : null,
+    });
+    await referralService.ensureReferralIdentity(user);
+  }
+
+  return buildGoogleLoginResult(user);
+};
+
+// 3. Login
 const login = async ({ email, password }) => {
   const user = await User.findOne({ email });
   if (!user || !user.isVerified) {
@@ -164,7 +208,7 @@ const login = async ({ email, password }) => {
   };
 };
 
-// Send OTP
+// 4. Send Signup OTP
 const sendOtp = async (email) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -172,7 +216,7 @@ const sendOtp = async (email) => {
   return await createAndSendOtp(user, "signup", "Your Signup OTP");
 };
 
-// Verify OTP
+// 5. Verify Signup OTP
 const verifyOtp = async ({ email, otp }) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -202,7 +246,7 @@ const verifyOtp = async ({ email, otp }) => {
   };
 };
 
-// Forgot password
+// 6. Forgot Password (Send Reset OTP)
 const forgotPassword = async (email) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -210,7 +254,7 @@ const forgotPassword = async (email) => {
   return await createAndSendOtp(user, "reset", "Your Password Reset OTP");
 };
 
-// Verify reset OTP
+// 7. Verify Reset OTP -> Issues resetToken
 const verifyResetOtp = async ({ email, otp }) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -228,7 +272,7 @@ const verifyResetOtp = async ({ email, otp }) => {
   return { resetToken };
 };
 
-// Reset password
+// 8. Reset Password via resetToken
 const resetPassword = async ({ resetToken, newPassword }) => {
   let payload;
   try {
@@ -247,7 +291,7 @@ const resetPassword = async ({ resetToken, newPassword }) => {
   return true;
 };
 
-// Resend OTP
+// 9. Resend OTP
 const resendOtp = async ({ email, type }) => {
   const user = await User.findOne({ email });
   if (!user) throw createError(MESSAGES.USER.USER_DOES_NOT_EXIST, STATUS.BAD_REQUEST);
@@ -260,7 +304,7 @@ const resendOtp = async ({ email, type }) => {
   return await createAndSendOtp(user, type, subject);
 };
 
-// Refresh token
+// 10. Refresh Access Token (Rotation on 401)
 const refreshAccessToken = async (incomingRefreshToken) => {
   if (!incomingRefreshToken) {
     throw createError(MESSAGES.AUTH.NO_REFRESH_TOKEN_PROVIDED, STATUS.UNAUTHORIZED);
@@ -285,6 +329,7 @@ const refreshAccessToken = async (incomingRefreshToken) => {
 module.exports = {
   signup,
   googleAuth,
+  googleComplete,
   login,
   sendOtp,
   verifyOtp,

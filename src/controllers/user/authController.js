@@ -1,3 +1,4 @@
+// src/controllers/user/authController.js
 const authService = require('../../services/user/authService');
 const { sendTokenCookies, clearUserTokenCookies } = require('../../utils/jwt');
 const createError = require('../../utils/createError');
@@ -11,7 +12,7 @@ const {
 const STATUS = require('../../constants/statusCodes');
 const MESSAGES = require('../../constants/messages');
 
-// Signup
+// 1. Signup
 const signup = async (req, res) => {
   const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
   const email = normalizeEmail(req.body.email);
@@ -23,6 +24,7 @@ const signup = async (req, res) => {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.COMMON.PLEASE_FILL_ALL_THE_FIELDS });
   }
 
+  // Same rules, same messages as the signup form
   const error = validateUsername(username) || validateEmail(email) || validatePassword(password);
   if (error) {
     return res.status(STATUS.BAD_REQUEST).json({ message: error });
@@ -50,8 +52,28 @@ const signup = async (req, res) => {
   return res.status(STATUS.CREATED).json(user);
 };
 
-// Google login
+// 2. Google sign-in, step 1
+// Existing account -> logged in (cookies + user).
+// No account yet   -> nothing is created; { isNewUser: true, profile } is returned
+//                     so the signup page can show "Complete your account".
 const google = async (req, res) => {
+  const { token } = req.body;
+  if (!token) {
+    return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.GOOGLE_TOKEN_IS_REQUIRED });
+  }
+
+  const result = await authService.googleAuth(token);
+
+  if (result.isNewUser) {
+    return res.status(STATUS.OK).json(result);
+  }
+
+  sendTokenCookies(res, result.accessToken, result.refreshToken);
+  return res.status(STATUS.OK).json(result.user);
+};
+
+// 2b. Google sign-in, step 2: create the account after the "Complete your account" screen
+const googleComplete = async (req, res) => {
   const { token } = req.body;
   if (!token) {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.GOOGLE_TOKEN_IS_REQUIRED });
@@ -60,7 +82,7 @@ const google = async (req, res) => {
   const referralCode = typeof req.body.referralCode === 'string' ? req.body.referralCode.trim() : '';
   const termsAccepted = req.body.termsAccepted === true;
 
-  const { accessToken, refreshToken, user } = await authService.googleAuth(
+  const { accessToken, refreshToken, user } = await authService.googleComplete(
     token,
     referralCode || undefined,
     termsAccepted
@@ -70,7 +92,9 @@ const google = async (req, res) => {
   return res.status(STATUS.OK).json(user);
 };
 
-// Login
+// 3. Login
+// Login deliberately does NOT check password strength: accounts created under
+// older, weaker rules must still be able to sign in.
 const login = async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const { password } = req.body;
@@ -84,28 +108,31 @@ const login = async (req, res) => {
   return res.status(STATUS.OK).json(user);
 };
 
-// Refresh token
+// 4. Refresh Token (Invoked on frontend 401)
 const refreshToken = async (req, res) => {
   try {
     const incomingRefreshToken = req.cookies?.refreshToken;
     const { newAccessToken } = await authService.refreshAccessToken(incomingRefreshToken);
 
+    // Send only the newly minted access token cookie
     sendTokenCookies(res, newAccessToken);
 
     return res.status(STATUS.OK).json({ message: MESSAGES.AUTH.ACCESS_TOKEN_REFRESHED });
   } catch (err) {
+    // If the 7-day refresh token expired, purge cookies so the user re-authenticates
     clearUserTokenCookies(res);
+    // Any failure while refreshing means the session is over, so it is always a 401
     throw err.statusCode ? err : createError(err.message || MESSAGES.AUTH.SESSION_EXPIRED, STATUS.UNAUTHORIZED);
   }
 };
 
-// Logout
+// 5. Logout
 const logout = (req, res) => {
   clearUserTokenCookies(res);
   return res.status(STATUS.OK).json({ message: MESSAGES.AUTH.LOGGED_OUT_SUCCESSFULLY });
 };
 
-// Send OTP
+// 6. Send Signup OTP
 const sendOtp = async (req, res) => {
   const email = normalizeEmail(req.body.email);
   if (!email) return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.EMAIL_IS_REQUIRED });
@@ -117,7 +144,7 @@ const sendOtp = async (req, res) => {
   });
 };
 
-// Verify OTP
+// 7. Verify Signup OTP
 const verifyOtp = async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const { otp } = req.body;
@@ -129,7 +156,7 @@ const verifyOtp = async (req, res) => {
   return res.status(STATUS.OK).json(user);
 };
 
-// Forgot password
+// 8. Forgot Password
 const forgotPassword = async (req, res) => {
   const email = normalizeEmail(req.body.email);
   if (!email) return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PLEASE_ENTER_YOUR_EMAIL });
@@ -141,7 +168,7 @@ const forgotPassword = async (req, res) => {
   });
 };
 
-// Verify reset OTP
+// 9. Verify Reset OTP
 const verifyResetOtp = async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const { otp } = req.body;
@@ -154,7 +181,7 @@ const verifyResetOtp = async (req, res) => {
   });
 };
 
-// Reset password
+// 10. Reset Password
 const resetPassword = async (req, res) => {
   const { resetToken, newPassword } = req.body;
 
@@ -162,6 +189,7 @@ const resetPassword = async (req, res) => {
     return res.status(STATUS.BAD_REQUEST).json({ message: MESSAGES.AUTH.PLEASE_PROVIDE_RESET_TOKEN_AND_NEW_PASSWORD });
   }
 
+  // Same password rule as signup and change-password
   const passwordError = validatePassword(newPassword);
   if (passwordError) {
     return res.status(STATUS.BAD_REQUEST).json({ message: passwordError });
@@ -171,7 +199,7 @@ const resetPassword = async (req, res) => {
   return res.status(STATUS.OK).json({ message: MESSAGES.AUTH.PASSWORD_RESET_SUCCESSFUL });
 };
 
-// Resend OTP
+// 11. Resend OTP
 const resendOtp = async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const { type } = req.body;
@@ -194,6 +222,7 @@ const resendOtp = async (req, res) => {
 module.exports = {
   signup,
   google,
+  googleComplete,
   login,
   refreshToken,
   logout,

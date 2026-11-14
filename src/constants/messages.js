@@ -1,3 +1,7 @@
+// src/constants/messages.js
+// Every response message used in the backend, grouped by feature.
+// Messages that need a value (like a size) are functions: MESSAGES.VARIANT.STOCK_IS_REQUIRED_FOR_SIZE(size)
+// Object.freeze makes these behave like enums: values cannot be changed at runtime.
 const MESSAGES = Object.freeze({
   COMMON: Object.freeze({
     LIMIT_MUST_BE_GREATER_THAN_0: 'Limit must be greater than 0.',
@@ -16,6 +20,7 @@ const MESSAGES = Object.freeze({
     GOOGLE_TOKEN_IS_REQUIRED: 'Google token is required',
     INVALID_CREDENTIALS: 'Invalid credentials',
     INVALID_GOOGLE_TOKEN: 'Invalid Google token',
+    GOOGLE_ACCOUNT_NOT_FOUND: 'No account found for this Google account. Please sign up first.',
     INVALID_OTP: 'Invalid OTP',
     INVALID_OTP_TYPE: 'Invalid OTP type',
     INVALID_RESET_TOKEN: 'Invalid reset token',
@@ -232,6 +237,7 @@ const MESSAGES = Object.freeze({
     INVALID_RETURN_REASON: 'Please select a valid reason for the return.',
     INVALID_STATUS: 'Invalid order status.',
     INVALID_STATUS_TRANSITION: (from, to) => `Cannot change status from "${from}" to "${to}".`,
+    // same, but also tells the admin what IS allowed from the current status
     STATUS_STEP_NOT_ALLOWED: (from, to, allowed) =>
       `Cannot change status from "${from}" to "${to}". ` +
       (allowed.length ? `Allowed next: ${allowed.join(', ')}.` : 'No further changes are possible.'),
@@ -252,9 +258,11 @@ const MESSAGES = Object.freeze({
     INVALID_RETURN_ACTION: 'Action must be approve or reject.',
     NO_RETURN_REQUEST_FOR_ITEM: 'This item has no pending return request.',
     RETURN_UPDATED: 'Return request updated.',
+    // constants/messages.js  (inside the ORDER object)
 INVALID_QUANTITY: 'Quantity must be a whole number of 1 or more.',
 CANCEL_QUANTITY_EXCEEDS: 'You cannot cancel more units than are left in the order.',
 RETURN_QUANTITY_EXCEEDS: 'You cannot return more units than were delivered.',
+    // Admin: delivery status of one product (item) of an order
     ITEM_STATUS_UPDATED: 'Item status updated.',
     ITEM_ALREADY_DELIVERED: "This item is already delivered, so its status can't be changed any more.",
     ITEM_HAS_RETURN: "This item has a return request or was returned, so its status can't be changed.",
