@@ -58,6 +58,9 @@ const RETURN_REASONS = [
   'Other',
 ];
 
+// Returns are accepted only for this many days after an item is delivered
+const RETURN_WINDOW_DAYS = 7;
+
 const DAMAGE_RETURN_REASONS = ['Damaged product', 'Defective product'];
 
 const isDamageReturnReason = (reason) =>
@@ -85,6 +88,7 @@ module.exports = {
   unpaidOnlineFilter,
   CANCEL_REASONS,
   RETURN_REASONS,
+  RETURN_WINDOW_DAYS,
   DAMAGE_RETURN_REASONS,
   isDamageReturnReason,
   PRICING,

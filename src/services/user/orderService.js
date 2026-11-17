@@ -14,6 +14,7 @@ const {
   PAYMENT_STATUS,
   CANCEL_REASONS,
   RETURN_REASONS,
+  RETURN_WINDOW_DAYS,
   unpaidOnlineFilter,
 } = require('../../constants/orderConstants');
 
@@ -56,8 +57,40 @@ const hasLeftProcessing = (items) =>
       item.status !== ITEM_STATUS.PENDING && item.status !== ITEM_STATUS.CANCELLED
   );
 
-const getReturnableQuantity = (item) => {
+// When this item was delivered: the latest "delivered" entry in its history,
+// or the order's delivered date for older orders that have no such entry.
+const getDeliveredAt = (item, order) => {
+  const history = Array.isArray(item.statusHistory) ? item.statusHistory : [];
+
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    if (history[i].status === ITEM_STATUS.DELIVERED && history[i].updatedAt) {
+      return new Date(history[i].updatedAt);
+    }
+  }
+
+  return order?.deliveredAt ? new Date(order.deliveredAt) : null;
+};
+
+// Last moment a return can be requested (delivery + RETURN_WINDOW_DAYS), or null if unknown
+const getReturnDeadline = (item, order) => {
+  const deliveredAt = getDeliveredAt(item, order);
+  if (!deliveredAt || Number.isNaN(deliveredAt.getTime())) return null;
+
+  return new Date(deliveredAt.getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+};
+
+const isReturnWindowOpen = (item, order) => {
+  const deadline = getReturnDeadline(item, order);
+  return !deadline || Date.now() <= deadline.getTime();
+};
+
+const getReturnableQuantity = (item, order) => {
   if (item.status !== ITEM_STATUS.DELIVERED) {
+    return 0;
+  }
+
+  // 7-day return policy
+  if (!isReturnWindowOpen(item, order)) {
     return 0;
   }
 
@@ -187,9 +220,11 @@ const getReturnDescription = (description) => {
 };
 
 
-const toItemView = (item) => {
+const toItemView = (item, order) => {
   const remainingQuantity = getRemainingQuantity(item);
-  const returnableQuantity = getReturnableQuantity(item);
+  const returnableQuantity = getReturnableQuantity(item, order);
+  const returnDeadline =
+    item.status === ITEM_STATUS.DELIVERED ? getReturnDeadline(item, order) : null;
 
   let remainingTotal = 0;
 
@@ -248,6 +283,14 @@ const toItemView = (item) => {
 
     canReturn: returnableQuantity > 0,
     maxReturnQuantity: returnableQuantity,
+
+    // 7-day return policy: until when a return can be requested, and whether that time has passed
+    returnWindowDays: RETURN_WINDOW_DAYS,
+    returnDeadline,
+    returnWindowExpired:
+      Boolean(returnDeadline) &&
+      !isReturnWindowOpen(item, order) &&
+      getRemainingQuantity(item) - (item.returnedQuantity || 0) - (item.returnRequestedQuantity || 0) > 0,
   };
 };
 
@@ -257,12 +300,18 @@ const toOrderView = (order, items) => {
   const unpaidOnline = isUnpaidOnline(order);
   const shipped = hasLeftProcessing(items);
   const itemViews = items.map((item) => {
-    const view = toItemView(item);
+    const view = toItemView(item, order);
     return unpaidOnline ? { ...view, canCancel: false, maxCancelQuantity: 0, canReturn: false, maxReturnQuantity: 0 } : view;
   });
 
   const canCancel = itemViews.some((item) => item.canCancel);
   const canReturn = itemViews.some((item) => item.canReturn);
+
+  // Earliest deadline among the items that can still be returned
+  const returnDeadlines = itemViews
+    .filter((item) => item.canReturn && item.returnDeadline)
+    .map((item) => new Date(item.returnDeadline).getTime());
+  const returnDeadline = returnDeadlines.length ? new Date(Math.min(...returnDeadlines)) : null;
 
   return {
     id: String(order._id),
@@ -306,6 +355,8 @@ const toOrderView = (order, items) => {
       order.status === ORDER_STATUS.PENDING && canCancel && !shipped && !isUnpaidOnline(order),
 
     canReturn: canReturn && !isUnpaidOnline(order),
+    returnWindowDays: RETURN_WINDOW_DAYS,
+    returnDeadline: canReturn && !isUnpaidOnline(order) ? returnDeadline : null,
 
     canDownloadInvoice: !isUnpaidOnline(order),
   };
@@ -883,7 +934,7 @@ const returnOrder = async (
 
 
   for (const item of items) {
-    const quantity = getReturnableQuantity(item);
+    const quantity = getReturnableQuantity(item, order);
 
     if (quantity > 0) {
       const requested = await requestItemReturn(
@@ -900,8 +951,13 @@ const returnOrder = async (
   }
 
   if (requestedCount === 0) {
+    // Nothing went through: say so if the only reason is the 7-day limit
+    const windowClosed = items.some(
+      (item) => !isReturnWindowOpen(item, order) && getRemainingQuantity(item) > 0
+    );
+
     throw createError(
-      MESSAGES.ORDER.NO_RETURNABLE_ITEMS,
+      windowClosed ? MESSAGES.ORDER.RETURN_WINDOW_EXPIRED : MESSAGES.ORDER.NO_RETURNABLE_ITEMS,
       STATUS.BAD_REQUEST,
       ERROR_CODES.RETURN_NOT_ALLOWED
     );
@@ -955,7 +1011,16 @@ const returnOrderItem = async (
     );
   }
 
-  const maxReturnQuantity = getReturnableQuantity(item);
+  // 7-day return policy
+  if (item.status === ITEM_STATUS.DELIVERED && !isReturnWindowOpen(item, order)) {
+    throw createError(
+      MESSAGES.ORDER.RETURN_WINDOW_EXPIRED,
+      STATUS.BAD_REQUEST,
+      ERROR_CODES.RETURN_NOT_ALLOWED
+    );
+  }
+
+  const maxReturnQuantity = getReturnableQuantity(item, order);
 
   if (maxReturnQuantity === 0) {
     throw createError(

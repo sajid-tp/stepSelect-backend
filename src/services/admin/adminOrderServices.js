@@ -135,6 +135,16 @@ const itemAllowedStatuses = (order, item) => {
   return nextStatuses(order, item.status);
 };
 
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+// Money one unit of an item cost the customer: its price after the offer, minus its share
+// of the coupon / referral discount, plus tax. Same formula the return refund uses.
+const unitPaid = (item) =>
+  item.quantity > 0
+    ? ((item.itemTotal || 0) - (item.couponShare || 0) - (item.referralShare || 0) + (item.taxAmount || 0)) /
+      item.quantity
+    : 0;
+
 // Get order
 const getOrder = async (orderRef) => {
   const order = await findOrder(orderRef);
@@ -146,8 +156,19 @@ const getOrder = async (orderRef) => {
   const view = toOrderView(order, items);
   const rawById = new Map(items.map((i) => [String(i._id), i]));
 
+  // The order's own totals are recalculated after a cancel, so rebuild what was
+  // originally ordered from the items (their amounts are never changed).
+  const originalTotal = round2(
+    items.reduce((sum, i) => sum + unitPaid(i) * i.quantity, 0) + (order.shippingFee || 0)
+  );
+  const cancelledTotal = round2(items.reduce((sum, i) => sum + unitPaid(i) * (i.cancelledQuantity || 0), 0));
+  const returnedTotal = round2(items.reduce((sum, i) => sum + unitPaid(i) * (i.returnedQuantity || 0), 0));
+
   return {
     ...view,
+    originalTotal,
+    cancelledTotal,
+    returnedTotal,
     items: view.items.map((v) => {
       const raw = rawById.get(v.id);
       return {
@@ -156,6 +177,9 @@ const getOrder = async (orderRef) => {
         returnRestockedQuantity: raw.returnRestockedQuantity || 0,
         returnDiscardedQuantity: raw.returnDiscardedQuantity || 0,
         returnIsDamage: isDamageReturnReason(raw.returnReason),
+        // What one unit really cost the customer (after offer, coupon / referral share, plus tax)
+        returnRefundAmount: round2(unitPaid(raw) * (raw.returnedQuantity || 0)),
+        cancelledAmount: round2(unitPaid(raw) * (raw.cancelledQuantity || 0)),
       };
     }),
     user: toUserView(user),

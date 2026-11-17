@@ -255,6 +255,7 @@ const MESSAGES = Object.freeze({
     RETURN_REASON_IS_REQUIRED: 'Reason for return is required.',
     RETURN_REQUESTED_SUCCESSFULLY: 'Return request submitted.',
     NO_RETURNABLE_ITEMS: 'There are no items to return in this order.',
+    RETURN_WINDOW_EXPIRED: 'Returns are accepted only within 7 days of delivery. The return period for this item has ended.',
     INVALID_RETURN_ACTION: 'Action must be approve or reject.',
     NO_RETURN_REQUEST_FOR_ITEM: 'This item has no pending return request.',
     RETURN_UPDATED: 'Return request updated.',

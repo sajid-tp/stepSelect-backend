@@ -186,13 +186,8 @@ const addVariant = async (
     );
   }
 
-  if (!product.isActive) {
-    throw createError(
-      MESSAGES.VARIANT.CANNOT_ADD_A_VARIANT_TO_AN_INACTIVE_PRODUCT,
-      STATUS.BAD_REQUEST,
-      ERROR_CODES.PRODUCT_INACTIVE
-    );
-  }
+  // Inactive products can get new variants too (the admin may finish setting
+  // a product up before switching it back on).
 
   const variantColor = (color || '').trim();
 
