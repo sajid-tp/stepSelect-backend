@@ -1,5 +1,6 @@
 const Order = require('../../models/order');
 const OrderItem = require('../../models/orderItem');
+const Coupon = require('../../models/coupon');
 
 const createError = require('../../utils/createError');
 const STATUS = require('../../constants/statusCodes');
@@ -727,7 +728,18 @@ const getMyOrder = async (userId, orderRef) => {
     orderId: order._id,
   });
 
-  return toOrderView(order, items);
+  const view = toOrderView(order, items);
+
+  // What the coupon gave (e.g. 20% off), so the order page can show it next to the code
+  if (order.couponId) {
+    const coupon = await Coupon.findById(order.couponId).select('discountType discountValue');
+
+    if (coupon) {
+      view.couponInfo = { type: coupon.discountType, value: coupon.discountValue };
+    }
+  }
+
+  return view;
 };
 
 // Cancel order
